@@ -8,10 +8,7 @@ import com.nextdoor.nextdoor.domain.post.domain.Post;
 import com.nextdoor.nextdoor.domain.post.domain.PostLikeCount;
 import com.nextdoor.nextdoor.domain.post.exception.NoSuchPostException;
 import com.nextdoor.nextdoor.domain.post.mapper.PostMapper;
-import com.nextdoor.nextdoor.domain.post.port.PostQueryPort;
-import com.nextdoor.nextdoor.domain.post.port.ProductConditionAnalysisPort;
-import com.nextdoor.nextdoor.domain.post.port.ProductImageAnalysisPort;
-import com.nextdoor.nextdoor.domain.post.port.S3ImageUploadPort;
+import com.nextdoor.nextdoor.domain.post.port.*;
 import com.nextdoor.nextdoor.domain.post.repository.PostLikeCountRepository;
 import com.nextdoor.nextdoor.domain.post.repository.PostLikeRepository;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
@@ -116,6 +113,7 @@ public class PostServiceImpl implements PostService {
             sample.stop(outboxInsertTimer);
         }
     }
+
 
     @Override
     @Transactional(readOnly = true)
@@ -251,13 +249,13 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(readOnly = true)
     public AnalyzeProductImageResponse analyzeProductImage(MultipartFile productImage) {
-        return productImageAnalysisPort.analyzeProductImage(productImage);
+        return productAnalysisPort.analyzeProductImage(productImage);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ProductConditionAnalysisResponseDto analyzeProductCondition(MultipartFile productImage) {
-        return productConditionAnalysisPort.analyzeProductCondition(productImage);
+        return productAnalysisPort.analyzeProductCondition(productImage);
     }
 
     @Override

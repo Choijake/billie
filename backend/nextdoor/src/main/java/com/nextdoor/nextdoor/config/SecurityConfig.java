@@ -52,6 +52,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth").permitAll()
                         .requestMatchers("/api/v1/posts/**").permitAll()
                         .anyRequest().authenticated())
+
                 .oauth2Login(oauth2 -> oauth2
                         .redirectionEndpoint(redirection -> redirection
                                 .baseUri("/api/v1/auth/oauth2/code/*"))

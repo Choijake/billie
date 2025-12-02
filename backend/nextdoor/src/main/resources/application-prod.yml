@@ -19,6 +19,7 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
+
   data:
     redis:
       host: localhost
@@ -45,6 +46,7 @@ spring:
             token-uri: https://kauth.kakao.com/oauth/token
             user-info-uri: https://kapi.kakao.com/v2/user/me
             user-name-attribute: id
+
 
 sqs:
   queue:

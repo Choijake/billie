@@ -26,7 +26,7 @@ public class Member extends TimestampedEntity {
     private String userKey;
 
     @NotNull
-    private String email;
+    private String providerId;
 
     private String birth;
 

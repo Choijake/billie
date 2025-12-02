@@ -34,6 +34,12 @@ configurations {
 
 repositories {
 	mavenCentral()
+	maven { url 'https://repo.spring.io/milestone' }
+	maven { url 'https://repo.spring.io/snapshot' }
+	maven {
+		name = 'Central Portal Snapshots'
+		url = 'https://central.sonatype.com/repository/maven-snapshots/'
+	}
 }
 
 dependencies {
@@ -79,6 +85,7 @@ dependencies {
 	implementation 'co.elastic.clients:elasticsearch-java:8.11.0'
 	implementation 'org.apache.httpcomponents:httpclient:4.5.14'
 	implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+
 }
 
 tasks.named('test') {

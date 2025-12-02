@@ -8,5 +8,5 @@ public interface AuthMemberQueryPort {
 
     Optional<MemberQueryDto> findById(Long id);
 
-    Optional<MemberQueryDto> findByEmailAndAuthProvider(String email, String authProvider);
+    Optional<MemberQueryDto> findByIdAndAuthProvider(String id, String authProvider);
 }

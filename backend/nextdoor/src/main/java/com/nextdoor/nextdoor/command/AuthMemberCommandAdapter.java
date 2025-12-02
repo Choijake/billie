@@ -19,9 +19,9 @@ public class AuthMemberCommandAdapter implements AuthMemberCommandPort {
         Member member = memberRepository.save(Member.builder()
                 .authProvider(command.getAuthProvider())
                 .nickname(command.getNickname())
-                .email(command.getEmail())
+                .providerId(command.getProviderId())
                 .profileImageUrl(command.getProfileImageUrl())
                 .build());
-        return new MemberQueryDto(member.getId(), member.getUuid(), member.getEmail());
+        return new MemberQueryDto(member.getId(), member.getUuid(), member.getProviderId());
     }
 }

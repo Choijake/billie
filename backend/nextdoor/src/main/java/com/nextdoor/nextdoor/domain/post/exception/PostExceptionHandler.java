@@ -17,7 +17,8 @@ public class PostExceptionHandler {
             PostImageUploadException.class,
             PostLikeException.class,
             PostSearchException.class,
-            PostIndexException.class
+            PostIndexException.class,
+            HttpFileReadException.class,
     })
     public ResponseEntity<ErrorResponse> handleBadRequestException(BaseCustomException e, HttpServletRequest request) {
         return logAndHandleException(HttpStatus.BAD_REQUEST, e, request);

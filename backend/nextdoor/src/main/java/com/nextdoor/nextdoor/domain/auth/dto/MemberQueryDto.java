@@ -9,5 +9,5 @@ public class MemberQueryDto {
 
     private Long id;
     private String uuid;
-    private String email;
+    private String providerId;
 }

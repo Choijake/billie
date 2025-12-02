@@ -9,6 +9,6 @@ public class MemberCommandDto {
 
     private String authProvider;
     private String nickname;
-    private String email;
+    private String providerId;
     private String profileImageUrl;
 }

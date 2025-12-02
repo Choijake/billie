@@ -41,26 +41,32 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
         OAuth2User oAuth2User = super.loadUser(userRequest);
         String authProvider = userRequest.getClientRegistration().getClientName();
-        String nickname, email, profileImageUrl;
+        String id, nickname, profileImageUrl;
         switch (authProvider) {
             case "Kakao":
+                id = oAuth2User.getAttributes().get("id").toString();
                 Map<String, Object> kakaoAccount = (Map<String, Object>) oAuth2User.getAttributes().get("kakao_account");
                 Map<String, Object> profile = (Map<String, Object>) kakaoAccount.get("profile");
                 nickname = (String) profile.get("nickname");
-                email = (String) kakaoAccount.get("email");
                 profileImageUrl = (String) profile.get("profile_image_url");
+                break;
+            case "Naver":
+                Map<String, Object> response = (Map<String, Object>) oAuth2User.getAttributes().get("response");
+                id = response.get("id").toString();
+                nickname = (String) response.get("name");
+                profileImageUrl = (String) response.get("profile_image");
                 break;
             default:
                 throw new UnsupportedOAuth2ProviderException("지원하지 않는 OAuth2 제공자입니다.");
         }
-        MemberQueryDto member = authMemberQueryPort.findByEmailAndAuthProvider(email, authProvider).orElseGet(() -> {
+        MemberQueryDto member = authMemberQueryPort.findByIdAndAuthProvider(id, authProvider).orElseGet(() -> {
             // 새 멤버 저장
-            MemberQueryDto newMember = authMemberCommandPort.save(new MemberCommandDto(authProvider, nickname, email, profileImageUrl));
+            MemberQueryDto newMember = authMemberCommandPort.save(new MemberCommandDto(authProvider, nickname, id, profileImageUrl));
 
             // 이벤트 발행
             long randomNumber = (long) (Math.random() * Long.MAX_VALUE);
             eventPublisher.publishEvent(new MemberCreatedEvent(newMember.getId(),
-                    randomNumber + newMember.getEmail()));
+                    randomNumber + "_" +  newMember.getProviderId() + "@example.com"));
 
             return newMember;
         });

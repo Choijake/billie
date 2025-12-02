@@ -1,9 +1,9 @@
 package com.nextdoor.nextdoor.config;
 
 import com.google.cloud.vertexai.VertexAI;
-import com.google.cloud.vertexai.api.Part;
-import com.google.cloud.vertexai.generativeai.GenerativeModel;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel;
+import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,12 +25,6 @@ public class GeminiConfig {
     @Value("${custom.google.ai.gemini.model.flashHigh}")
     private String geminiFlashHigh;
 
-    @Value("${custom.google.ai.gemini.location}")
-    private String geminiLocation;
-
-    @Value("${custom.google.ai.gemini.project-id}")
-    private String geminiProjectId;
-
     @Value("${custom.damage-analyzer-prompt-location}")
     private String damageAnalyzerPromptLocation;
 
@@ -46,57 +40,74 @@ public class GeminiConfig {
     @Value("${custom.product-condition-analyzer-prompt-location}")
     private String productConditionAnalyzerPromptLocation;
 
-    @Bean
-    public VertexAI vertexAI() {
-        return new VertexAI(geminiProjectId, geminiLocation);
+    @Bean("geminiFlashChatClient")
+    public ChatClient geminiFlashChatClient(VertexAI vertexAI) {
+        var vertexAiGeminiChatOptions = VertexAiGeminiChatOptions.builder()
+                .temperature(0.7)
+                .candidateCount(1)
+                .model(geminiFlash)
+                .build();
+        return ChatClient.create(VertexAiGeminiChatModel.builder()
+                .vertexAI(vertexAI)
+                .defaultOptions(vertexAiGeminiChatOptions)
+                .build());
     }
 
-    @Bean(name = "geminiFlash")
-    public GenerativeModel geminiAnalysisModel(VertexAI vertexAI) {
-        return new GenerativeModel(geminiFlash, vertexAI);
+    @Bean("geminiFlashHighChatClient")
+    public ChatClient geminiFlashHighChatClient(VertexAI vertexAI) {
+        var vertexAiGeminiChatOptions = VertexAiGeminiChatOptions.builder()
+                .temperature(0.7)
+                .candidateCount(1)
+                .model(geminiFlashHigh)
+                .build();
+        return ChatClient.create(VertexAiGeminiChatModel.builder()
+                .vertexAI(vertexAI)
+                .defaultOptions(vertexAiGeminiChatOptions)
+                .build());
     }
 
-    @Bean(name = "geminiPro")
-    public GenerativeModel geminiComparisonModel(VertexAI vertexAI) {
-        return new GenerativeModel(geminiPro, vertexAI);
+    @Bean("geminiProChatClient")
+    public ChatClient geminiProChatClient(VertexAI vertexAI) {
+        var vertexAiGeminiChatOptions = VertexAiGeminiChatOptions.builder()
+                .temperature(0.7)
+                .candidateCount(1)
+                .model(geminiPro)
+                .build();
+        return ChatClient.create(VertexAiGeminiChatModel.builder()
+                .vertexAI(vertexAI)
+                .defaultOptions(vertexAiGeminiChatOptions)
+                .build());
     }
 
-    @Bean
-    @Qualifier("geminiFlashHigh")
-    public GenerativeModel geminiFlashHigh(VertexAI vertexAI) {
-        return new GenerativeModel(geminiFlashHigh, vertexAI);
+    @Bean(name = "damageAnalyzerPrompt")
+    public String damageAnalyzerPrompt(ResourceLoader resourceLoader) {
+        return loadPromptText(resourceLoader, damageAnalyzerPromptLocation);
     }
 
-    @Bean(name = "damageAnalyzerPromptPart")
-    public Part damageAnalyzerPromptPart(ResourceLoader resourceLoader) {
-        return loadPromptPart(resourceLoader, damageAnalyzerPromptLocation);
+    @Bean(name = "summarizerPrompt")
+    public String summarizerPrompt(ResourceLoader resourceLoader) {
+        return loadPromptText(resourceLoader, summarizerPromptLocation);
     }
 
-    @Bean(name = "summarizerPromptPart")
-    public Part summarizerPromptPart(ResourceLoader resourceLoader) {
-        return loadPromptPart(resourceLoader, summarizerPromptLocation);
+    @Bean(name = "pairDamageComparatorPrompt")
+    public String pairDamageComparatorPrompt(ResourceLoader resourceLoader) {
+        return loadPromptText(resourceLoader, pairDamageComparatorPromptLocation);
     }
 
-    @Bean(name = "pairDamageComparatorPromptPart")
-    public Part pairDamageComparatorPromptPart(ResourceLoader resourceLoader) {
-        return loadPromptPart(resourceLoader, pairDamageComparatorPromptLocation);
+    @Bean(name = "productAnalyzerPrompt")
+    public String productAnalyzerPrompt(ResourceLoader resourceLoader) {
+        return loadPromptText(resourceLoader, productAnalyzerPromptLocation);
     }
 
-    @Bean(name = "productAnalyzerPromptPart")
-    public Part productAnalyzerPromptPart(ResourceLoader resourceLoader) {
-        return loadPromptPart(resourceLoader, productAnalyzerPromptLocation);
+    @Bean(name = "productConditionAnalyzerPrompt")
+    public String productConditionAnalyzerPrompt(ResourceLoader resourceLoader) {
+        return loadPromptText(resourceLoader, productConditionAnalyzerPromptLocation);
     }
 
-    @Bean(name = "productConditionAnalyzerPromptPart")
-    public Part productConditionAnalyzerPromptPart(ResourceLoader resourceLoader) {
-        return loadPromptPart(resourceLoader, productConditionAnalyzerPromptLocation);
-    }
-
-    private Part loadPromptPart(ResourceLoader resourceLoader, String location) {
+    private String loadPromptText(ResourceLoader resourceLoader, String location) {
         Resource resource = resourceLoader.getResource("classpath:" + location);
         try {
-            String prompt = resource.getContentAsString(StandardCharsets.UTF_8);
-            return Part.newBuilder().setText(prompt).build();
+            return resource.getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load prompt from " + location, e);
         }

@@ -10,7 +10,7 @@ public class MemberResponseDto {
     private Long id;
     private String uuid;
     private String userKey;
-    private String email;
+    private String providerId;
     private String birth;
     private Gender gender;
     private String address;
@@ -23,7 +23,7 @@ public class MemberResponseDto {
         dto.id = member.getId();
         dto.uuid = member.getUuid();
         dto.userKey = member.getUserKey();
-        dto.email = member.getEmail();
+        dto.providerId = member.getProviderId();
         dto.birth = member.getBirth();
         dto.gender = member.getGender();
         dto.address = member.getAddress();

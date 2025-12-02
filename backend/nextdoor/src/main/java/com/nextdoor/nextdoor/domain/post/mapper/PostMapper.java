@@ -13,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Collections;
 import java.util.List;
 
 @Component
@@ -73,7 +74,7 @@ public class PostMapper {
                 .address(request.getAddress())
                 .preferredLocation(request.getPreferredLocation())
                 .authorId(authorId)
-                .productImages(productImages)
+                .productImages(productImages != null ? productImages : Collections.emptyList())
                 .build();
     }
 
@@ -93,9 +94,12 @@ public class PostMapper {
     }
 
     public CreatePostResult toCreateResult(Post post, List<String> imageUrls) {
+        double lat = post.getLatitude() != null ? post.getLatitude() : 0.0;
+        double lng = post.getLongitude() != null ? post.getLongitude() : 0.0;
+
         LocationDto location = LocationDto.builder()
-                .latitude(post.getLatitude())
-                .longitude(post.getLongitude())
+                .latitude(lat)
+                .longitude(lng)
                 .build();
 
         return CreatePostResult.builder()
@@ -122,7 +126,7 @@ public class PostMapper {
                 .address(request.getAddress())
                 .preferredLocation(request.getPreferredLocation())
                 .authorId(authorId)
-                .productImages(productImages)
+                .productImages(productImages != null ? productImages : Collections.emptyList())
                 .build();
     }
 

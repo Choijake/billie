@@ -1,0 +1,23 @@
+services:
+  api-server:
+    image: 235969061926.dkr.ecr.ap-northeast-2.amazonaws.com/billie-app:latest
+    container_name: billie-api-server
+    network_mode: host
+    env_file:
+      - .env
+    restart: always
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ./heapdumps:/heapdumps
+    environment:
+      SPRING_PROFILES_ACTIVE: "prod,api"
+      JAVA_TOOL_OPTIONS: >
+        -Xms2g -Xmx3g
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+PrintFlagsFinal
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/heapdumps

@@ -1,0 +1,29 @@
+version: 0.0
+os: linux
+
+file_exists_behavior: OVERWRITE
+
+files:
+  - source: /
+    destination: /home/ubuntu/app
+
+permissions:
+  - object: /home/ubuntu/app/scripts/
+    pattern: "**"
+    owner: ubuntu
+    group: ubuntu
+    mode: 755
+
+hooks:
+  ApplicationStop:
+    - location: scripts/stop.sh
+      timeout: 30
+      runas: ubuntu
+  BeforeInstall:
+    - location: scripts/before-install.sh
+      timeout: 30
+      runas: ubuntu
+  ApplicationStart:
+    - location: scripts/start.sh
+      timeout: 300
+      runas: ubuntu

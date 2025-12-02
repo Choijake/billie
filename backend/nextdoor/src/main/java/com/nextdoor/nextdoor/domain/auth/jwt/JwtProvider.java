@@ -32,6 +32,19 @@ public class JwtProvider {
                 .compact();
     }
 
+    public String createDummyToken(String userId, String uuid) {
+        Date expiryDate = Date.from(Instant.now().plus(24, ChronoUnit.HOURS));
+
+        return Jwts.builder()
+                .signWith(SECRET_KEY)
+                .subject(userId)
+                .claim("uuid", uuid)
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .expiration(expiryDate)
+                .compact();
+    }
+
     public String validateAndGetUserId(String token) {
         return Jwts.parser()
                 .verifyWith((SecretKey) SECRET_KEY)

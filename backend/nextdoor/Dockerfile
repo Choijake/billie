@@ -1,13 +1,19 @@
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jdk AS builder
 
-ARG JAR_FILE=build/libs/*.jar
+WORKDIR /workspace
+
+COPY . .
+
+RUN chmod +x ./gradlew && ./gradlew clean bootJar
+
+FROM eclipse-temurin:21-jdk
 
 WORKDIR /app
 
-COPY ${JAR_FILE} app.jar
+COPY --from=builder /workspace/build/libs/*.jar app.jar
 
 EXPOSE 8081
 
-ENV ACTIVE_PROFILE prod,secret
+ENV SPRING_PROFILES_ACTIVE=prod
 
-ENTRYPOINT ["java","-Dspring.profiles.active=${ACTIVE_PROFILE}","-jar","app.jar"]
+ENTRYPOINT ["java","-jar","app.jar"]

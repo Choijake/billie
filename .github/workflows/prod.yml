@@ -1,0 +1,67 @@
+name: Backend CI/CD with Docker and CodeDeploy
+
+on:
+  push:
+    branches: [ "perf/es-indexing" ]
+
+env:
+  ECR_REPOSITORY: billie-app
+  AWS_REGION: ap-northeast-2
+  S3_BUCKET_NAME: billie-snapshot-bucket
+  CODE_DEPLOY_APP_NAME: billie-deploy
+  CODE_DEPLOY_GROUP_NAME: billie-deploy-group
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --no-cache --pull ./backend/nextdoor
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Make deployment package
+        run: |
+          chmod +x ./scripts/*.sh
+          mkdir -p deploy
+          cp appspec.yml deploy/
+          cp docker-compose.yml deploy/
+          cp -r scripts deploy/
+          cd deploy
+          zip -r ../deploy.zip .
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp \
+            deploy.zip \
+            s3://${{ env.S3_BUCKET_NAME }}/p2p-backend/deploy.zip
+
+      - name: Deploy to EC2 with CodeDeploy
+        run: |
+          aws deploy create-deployment \
+            --application-name ${{ env.CODE_DEPLOY_APP_NAME }} \
+            --deployment-group-name ${{ env.CODE_DEPLOY_GROUP_NAME }} \
+            --s3-location bucket=${{ env.S3_BUCKET_NAME }},bundleType=zip,key=p2p-backend/deploy.zip \
+            --deployment-config-name CodeDeployDefault.OneAtATime \
+            --description "Deploying image ${{ steps.build-image.outputs.image }} from GitHub Actions"

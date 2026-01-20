@@ -249,13 +249,13 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(readOnly = true)
     public AnalyzeProductImageResponse analyzeProductImage(MultipartFile productImage) {
-        return productAnalysisPort.analyzeProductImage(productImage);
+        return productImageAnalysisPort.analyzeProductImage(productImage);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ProductConditionAnalysisResponseDto analyzeProductCondition(MultipartFile productImage) {
-        return productAnalysisPort.analyzeProductCondition(productImage);
+        return productConditionAnalysisPort.analyzeProductCondition(productImage);
     }
 
     @Override

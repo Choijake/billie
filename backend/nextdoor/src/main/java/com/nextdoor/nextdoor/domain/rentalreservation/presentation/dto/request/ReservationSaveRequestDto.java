@@ -1,11 +1,13 @@
 package com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.request;
 
 import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import java.time.LocalDate;
 
 @Getter
+@AllArgsConstructor
 public class ReservationSaveRequestDto {
 
     @NotNull

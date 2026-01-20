@@ -1,8 +1,10 @@
 package com.nextdoor.nextdoor.domain.rentalreservation.domain.model;
 
 public enum RentalReservationStatus {
+    EXPIRED,
     PENDING,
     CONFIRMED,
+    REJECTED,
     BEFORE_PHOTO_ANALYZED,
     REMITTANCE_REQUESTED,
     REMITTANCE_COMPLETED,

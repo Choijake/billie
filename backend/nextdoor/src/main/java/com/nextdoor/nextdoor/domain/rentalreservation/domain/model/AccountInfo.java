@@ -14,10 +14,10 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode
 public class AccountInfo {
 
-    @Column(name = "account_no", nullable = false, length = 30)
+    @Column(name = "account_no", nullable = true, length = 30)
     private String accountNo;
 
-    @Column(name = "bank_code", nullable = false, length = 10)
+    @Column(name = "bank_code", nullable = true, length = 10)
     private String bankCode;
 
     public AccountInfo(String accountNo, String bankCode) {

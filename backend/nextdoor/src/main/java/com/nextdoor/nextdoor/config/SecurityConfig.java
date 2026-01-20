@@ -23,7 +23,7 @@ import org.springframework.web.filter.CorsFilter;
 @RequiredArgsConstructor
 @Configuration
 @EnableWebSecurity
-@Profile("api")
+@Profile("dev")
 public class SecurityConfig {
 
     private final OAuth2AuthorizationRequestBasedOnCookieRepository oAuth2AuthorizationRequestBasedOnCookieRepository;
@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers("/index-all").permitAll()
                         .requestMatchers("/api/v1/auth").permitAll()
                         .requestMatchers("/api/v1/posts/**").permitAll()
+                        .requestMatchers("/api/reservations/**").permitAll()
                         .anyRequest().authenticated())
 
                 .oauth2Login(oauth2 -> oauth2

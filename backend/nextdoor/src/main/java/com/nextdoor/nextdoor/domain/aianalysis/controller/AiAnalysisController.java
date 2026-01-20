@@ -6,6 +6,7 @@ import com.nextdoor.nextdoor.domain.aianalysis.controller.dto.response.DamageAna
 import com.nextdoor.nextdoor.domain.aianalysis.controller.dto.response.DamageComparisonResponseDto;
 import com.nextdoor.nextdoor.domain.aianalysis.service.AiAnalysisService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RequiredArgsConstructor
 @RestController
+@ConditionalOnExpression("'${custom.google.ai.use-real:false}' == 'true'")
 @RequestMapping("/api/v1/ai")
 public class AiAnalysisController {
 

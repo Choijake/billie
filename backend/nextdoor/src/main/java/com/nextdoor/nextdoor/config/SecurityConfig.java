@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers("/index-all").permitAll()
                         .requestMatchers("/api/v1/auth").permitAll()
                         .requestMatchers("/api/v1/posts/**").permitAll()
+                        .requestMatchers("/api/v1/feed/**").permitAll()
                         .requestMatchers("/api/reservations/**").permitAll()
                         .anyRequest().authenticated())
 

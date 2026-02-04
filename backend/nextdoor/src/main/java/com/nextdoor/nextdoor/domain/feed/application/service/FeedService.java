@@ -32,10 +32,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FeedService {
 
-    private final StringRedisTemplate redisTemplate; // [핵심 변경] 모든 Redis 작업을 이걸로 통일
+    private final StringRedisTemplate redisTemplate;
     private final UserInterestScoreRepository scoreRepository;
     private final PostRepository postRepository;
-    private final ObjectMapper objectMapper; // [추가] JSON 수동 변환용
+    private final ObjectMapper objectMapper;
 
     private static final String GEO_KEY = "feed:geo";
     private static final double SEARCH_RADIUS_KM = 10.0;
@@ -204,8 +204,6 @@ public class FeedService {
         Map<Category, Long> interests = new HashMap<>();
         String key = "user:" + memberId + ":interest";
 
-        // opsForHash().entries()는 Map<Object, Object>를 반환하지만,
-        // StringRedisTemplate을 쓰면 실제로는 Map<String, String>임
         Map<Object, Object> redisScores = redisTemplate.opsForHash().entries(key);
 
         if (!redisScores.isEmpty()) {

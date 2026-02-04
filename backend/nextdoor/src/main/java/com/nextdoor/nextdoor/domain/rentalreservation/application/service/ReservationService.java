@@ -10,6 +10,9 @@ import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.response.
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservation;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservationProcess;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservationStatus;
+import com.nextdoor.nextdoor.domain.post.domain.Category;
+import com.nextdoor.nextdoor.domain.rentalreservation.application.event.ReservationCreatedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.exception.AlreadyConfirmedException;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.exception.IllegalStatusException;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.exception.NoSuchReservationException;
@@ -46,55 +49,11 @@ public class ReservationService {
     private final RentalReservationPostQueryPort rentalReservationPostQueryPort;
     private final ReservationMemberQueryPort reservationMemberQueryPort;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ApplicationEventPublisher eventPublisher;
     private static final int MAX_PENDING_RESERVATIONS = 100;
 
     /**
-     * 기존: HOLD 방식 예약 생성 (하위 호환성)
-     */
-    @Transactional
-    public ReservationResponseDto createHoldReservation(
-            Long loginUserId,
-            ReservationSaveRequestDto reservationSaveRequestDto) {
-
-        PostDto post = rentalReservationPostQueryPort
-                .findByIdWithLock(reservationSaveRequestDto.getPostId())
-                .orElseThrow(() -> new IllegalArgumentException("게시물을 찾을 수 없습니다."));
-
-        if (rentalReservationRepository.existsOverlap(
-                post.getPostId(),
-                reservationSaveRequestDto.getStartDate(),
-                reservationSaveRequestDto.getEndDate())) {
-            throw new IllegalStateException("이미 예약된 일정입니다.");
-        }
-
-        RentalReservation rentalReservation = RentalReservation.createHold(
-                reservationSaveRequestDto.getStartDate(),
-                reservationSaveRequestDto.getEndDate(),
-                new Money(post.getRentalFee()),
-                new Money(post.getDeposit()),
-                post.getAuthorId(),
-                loginUserId,
-                post.getPostId()
-        );
-
-        rentalReservationRepository.save(rentalReservation);
-
-        ReservationMemberQueryDto member = reservationMemberQueryPort
-                .findById(loginUserId)
-                .orElseThrow();
-
-        ReservationResponseDto response = ReservationResponseDto.from(
-                rentalReservation, post, member);
-
-        messagingTemplate.convertAndSend(
-                "/topic/rental-reservation/" + post.getAuthorUuid() + "/status",
-                response);
-
-        return response;
-    }
-
-    /**
-     * 신규: PENDING 방식 예약 생성 (다중 예약)
+     * 신규: PENDING 방식 예약 생성
      */
     @Transactional
     public ReservationResponseDto createPendingReservation(
@@ -155,7 +114,13 @@ public class ReservationService {
         ReservationResponseDto response = ReservationResponseDto.from(
                 reservation, post, member);
 
-        // 7. 작성자에게 실시간 알림
+        // 7. 이벤트 발행
+        eventPublisher.publishEvent(new ReservationCreatedEvent(
+                loginUserId, 
+                Category.from(post.getCategory())
+        ));
+
+        // 8. 작성자에게 실시간 알림
         messagingTemplate.convertAndSend(
                 "/topic/rental-reservation/" + post.getAuthorUuid() + "/new-request",
                 response
@@ -201,24 +166,27 @@ public class ReservationService {
             Long reservationId,
             ReservationStatusUpdateRequestDto requestDto) {
 
-        // 1. 상태 검증
         if (requestDto.getStatus() != RentalReservationStatus.CONFIRMED) {
             throw new IllegalStatusException("잘못된 status입니다.");
         }
 
-        // 2. 예약 조회 및 권한 체크
+        // ✅ 1) 선택 예약 row 자체도 잠금 (동일 reservationId 동시 confirm 방지)
         RentalReservation selectedReservation = rentalReservationRepository
-                .findById(reservationId)
+                .findByIdForUpdate(reservationId)
                 .orElseThrow(NoSuchReservationException::new);
 
         validateOwner(loginUserId, selectedReservation);
 
-        // 3. PENDING 상태 검증
         if (selectedReservation.getRentalReservationStatus() != RentalReservationStatus.PENDING) {
             throw new IllegalStatusException("대기 중인 예약만 확정할 수 있습니다.");
         }
 
-        // 4. 비관적 락으로 동시성 제어 (이미 확정된 예약이 있는지)
+        // ✅ 2) 가장 중요한 락: post row를 PESSIMISTIC_WRITE로 잠금
+        // -> 같은 postId에 대한 confirm 처리가 트랜잭션 단위로 직렬화됨
+        rentalReservationPostQueryPort.findByIdWithLock(selectedReservation.getPostId())
+                .orElseThrow(() -> new IllegalArgumentException("게시물을 찾을 수 없습니다."));
+
+        // ✅ 3) 이제 exists 체크는 "락 아래에서" 안전하게 수행됨
         boolean alreadyConfirmed = rentalReservationRepository.existsConfirmedOverlap(
                 selectedReservation.getPostId(),
                 selectedReservation.getPeriod().getStartDate(),
@@ -229,12 +197,12 @@ public class ReservationService {
             throw new AlreadyConfirmedException("해당 날짜에 이미 확정된 예약이 있습니다.");
         }
 
-        // 5. 선택한 예약 확정
+        // ✅ 4) 확정 처리
         selectedReservation.changeStatus(RentalReservationStatus.CONFIRMED);
 
-        // 6. 같은 날짜 범위의 나머지 대기 예약들 거절
+        // ✅ 5) 겹치는 pending들을 잠가서 가져온 뒤 거절 처리
         List<RentalReservation> overlappingPending =
-                rentalReservationRepository.findPendingByPostIdAndDateRange(
+                rentalReservationRepository.findPendingByPostIdAndDateRangeForUpdate(
                         selectedReservation.getPostId(),
                         selectedReservation.getPeriod().getStartDate(),
                         selectedReservation.getPeriod().getEndDate()
@@ -249,18 +217,15 @@ public class ReservationService {
             }
         }
 
-        // 7. 확정 알림 전송 (선택된 사람)
+        // 알림/실시간 업데이트
         sendConfirmationNotification(selectedReservation);
-
-        // 8. 거절 알림 전송 (나머지 사람들)
         sendRejectionNotifications(rejectedReservations);
-
-        // 9. 작성자에게 실시간 업데이트
         notifyOwnerReservationConfirmed(selectedReservation);
 
         log.info("예약 확정 완료 - reservationId: {}, 거절된 예약 수: {}",
                 reservationId, rejectedReservations.size());
     }
+
 
     /**
      * 기존: 예약 상태 업데이트 (다른 상태 변경용)
@@ -458,8 +423,6 @@ public class ReservationService {
                 })
                 .collect(Collectors.toList());
     }
-
-    // ==================== Private 헬퍼 메서드 ====================
 
     /**
      * 확정 알림 전송

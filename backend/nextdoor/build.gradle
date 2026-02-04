@@ -52,6 +52,7 @@ dependencies {
 	implementation 'org.springframework.security:spring-security-messaging:6.5.1'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
 
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
@@ -92,6 +93,8 @@ dependencies {
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'io.micrometer:micrometer-core'
+	implementation 'io.micrometer:micrometer-tracing-bridge-brave'
+	implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
 
 	implementation 'org.elasticsearch.client:elasticsearch-rest-client:9.0.3'
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'

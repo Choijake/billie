@@ -2,8 +2,10 @@ package com.nextdoor.nextdoor.domain.post.repository;
 
 import com.nextdoor.nextdoor.domain.post.domain.Post;
 import com.nextdoor.nextdoor.domain.post.search.dto.PostWithLikeCountDto;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +14,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Post p where p.id = :postId")
+    Optional<Post> findByIdForUpdate(@Param("postId") Long postId);
 
     @Query("SELECT p.id FROM Post p WHERE p.id > :lastId ORDER BY p.id ASC")
     List<Long> findPostIdsAfter(@Param("lastId") Long lastId, Pageable pageable);

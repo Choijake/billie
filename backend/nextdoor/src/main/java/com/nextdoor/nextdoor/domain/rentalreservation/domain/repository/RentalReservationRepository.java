@@ -3,6 +3,8 @@ package com.nextdoor.nextdoor.domain.rentalreservation.domain.repository;
 import com.nextdoor.nextdoor.domain.rentalreservation.application.dto.AiComparisonResult;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservation;
 import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservationStatus;
+import jakarta.validation.constraints.NotNull;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -29,4 +31,6 @@ public interface RentalReservationRepository {
     List<RentalReservation> findConfirmedByPostIdFromDate(Long postId, LocalDate fromDate);
     // 대기 중인 예약 수 조회
     long countPendingByPostIdAndDateRange(Long postId, LocalDate reqStart, LocalDate reqEnd);
+    List<RentalReservation> findPendingByPostIdAndDateRangeForUpdate(@NotNull Long postId, LocalDate startDate, LocalDate endDate);
+    Optional<RentalReservation> findByIdForUpdate(Long reservationId);
 }

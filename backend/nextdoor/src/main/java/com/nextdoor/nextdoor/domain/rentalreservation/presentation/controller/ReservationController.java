@@ -53,20 +53,6 @@ public class ReservationController {
     }
 
     /**
-     * 기능 1-1: 예약 신청 (HOLD)
-     */
-    @PostMapping("/hold")
-    public ResponseEntity<ReservationResponseDto> createHoldReservation(
-            @RequestHeader("userId") Long userId,
-            @RequestBody @Valid ReservationSaveRequestDto requestDto) {
-
-        ReservationResponseDto response =
-                reservationService.createHoldReservation(userId, requestDto);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    /**
      * 예약 수정
      */
     @PutMapping("/{reservationId}")
@@ -110,7 +96,6 @@ public class ReservationController {
 
     /**
      * 기능 2: 날짜별 예약 확정 현황 조회 (달력)
-     * (이건 원래 로그인 불필요한 조회 기능이라 userId 없음)
      */
     @GetMapping("/calendar")
     public ResponseEntity<List<DateReservationStatusDto>> getReservationCalendar(

@@ -1,0 +1,307 @@
+name: Module - Run Test
+on:
+  workflow_call:
+    inputs:
+      db_ip:
+        required: true
+        type: string
+      app_ip:
+        required: true
+        type: string
+      util_ip:
+        required: true
+        type: string
+      util_priv_ip:
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      EC2_SSH_KEY:
+        required: true
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_PASSWORD:
+        required: true
+      DB_PASSWORD:
+        required: true
+      MQ_PASSWORD:
+        required: true
+
+jobs:
+  run-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # 1. DB 서버 배포
+      - name: Deploy DB Server
+        uses: appleboy/ssh-action@v0.1.10
+        env:
+          DB_PW: ${{ secrets.DB_PASSWORD }}
+          MQ_PW: ${{ secrets.MQ_PASSWORD }}
+          DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
+        with:
+          host: ${{ inputs.db_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DB_PW,MQ_PW,DOCKER_USER
+          script: |
+            sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
+            
+            cat <<EOF > docker-compose.yml
+            version: '3.8'
+            services:
+              mysql:
+                image: 'choijake/nextdoor-mysql:perf-data' 
+                ports: ['3306:3306']
+                user: root
+                environment:
+                  - 'MYSQL_DATABASE=nextdoor'
+                  - "MYSQL_ROOT_PASSWORD=$DB_PW"
+                command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+            
+              # MySQL Exporter: DB 상태를 Prometheus에 노출
+              mysqld-exporter:
+                image: prom/mysqld-exporter
+                ports: ['9104:9104']
+                environment:
+                  # Exporter가 mysql 컨테이너에 접속하기 위한 정보
+                  - DATA_SOURCE_NAME=root:$DB_PW@(mysql:3306)/
+                depends_on:
+                  - mysql
+
+              redis:
+                image: 'choijake/nextdoor-redis:perf-data'
+                ports: ['6379:6379']
+                command: redis-server --appendonly no
+              rabbitmq:
+                image: 'rabbitmq:3-management'
+                ports: ['5672:5672', '15672:15672']
+                environment:
+                  - 'RABBITMQ_DEFAULT_USER=ssafy'
+                  - "RABBITMQ_DEFAULT_PASS=$MQ_PW"
+              mongodb:
+                image: 'mongo:6.0'
+                ports: ['27017:27017']
+              elasticsearch:
+                image: $DOCKER_USER/nextdoor-es:perf
+                ports: ['9200:9200']
+                environment:
+                  - 'discovery.type=single-node'
+                  - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
+                  - 'xpack.security.enabled=false'
+            EOF
+            
+            sudo docker login -u $DOCKER_USER -p ${{ secrets.DOCKER_PASSWORD }}
+            sudo docker-compose up -d
+
+      # 2. Util 서버 배포
+      - name: Deploy Util
+        uses: appleboy/ssh-action@v0.1.10
+        env:
+          APP_IP: ${{ inputs.app_ip }}
+          DB_IP: ${{ inputs.db_ip }}
+        with:
+          host: ${{ inputs.util_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: APP_IP,DB_IP
+          script: |
+            sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
+            rm -rf /home/ubuntu/monitoring
+            
+            mkdir -p /home/ubuntu/monitoring/prometheus
+            mkdir -p /home/ubuntu/monitoring/grafana/provisioning/datasources
+            mkdir -p /home/ubuntu/monitoring/grafana/provisioning/dashboards
+            mkdir -p /home/ubuntu/monitoring/grafana/dashboards_json
+            
+            cd /home/ubuntu/monitoring
+            
+            # Prometheus Config 
+            cat <<EOF > prometheus/prometheus.yml
+            global:
+              scrape_interval: 5s
+            scrape_configs:
+              - job_name: 'nextdoor-app'
+                metrics_path: '/actuator/prometheus'
+                static_configs:
+                  - targets: ['$APP_IP:8080']
+                    labels:
+                      application: 'NextDoor-App'
+            
+              # MySQL Exporter 수집 설정
+              - job_name: 'mysql-exporter'
+                static_configs:
+                  - targets: ['$DB_IP:9104']
+                    labels:
+                      application: 'NextDoor-DB'
+            EOF
+
+            # Grafana Datasource
+            cat <<EOF > grafana/provisioning/datasources/datasource.yml
+            apiVersion: 1
+            datasources:
+              - name: Prometheus
+                type: prometheus
+                uid: prometheus
+                access: proxy
+                url: http://prometheus:9090
+                isDefault: true
+            EOF
+
+            # Dashboard Provider
+            cat <<EOF > grafana/provisioning/dashboards/dashboard.yml
+            apiVersion: 1
+            providers:
+              - name: 'Default'
+                orgId: 1
+                folder: ''
+                type: file
+                disableDeletion: false
+                updateIntervalSeconds: 10
+                options:
+                  path: /etc/grafana/dashboards
+            EOF
+
+            # Dashboard JSON 다운로드
+            echo "📥 Downloading Dashboards..."
+            # 1. Spring Boot Dashboard
+            curl -f -L -o grafana/dashboards_json/springboot.json https://grafana.com/api/dashboards/19004/revisions/1/download
+            sed -i 's/${DS_PROMETHEUS}/Prometheus/g' grafana/dashboards_json/springboot.json
+            
+            # 2. ✅ [추가] MySQL Dashboard (ID: 7362 - MySQL Overview)
+            curl -f -L -o grafana/dashboards_json/mysql.json https://grafana.com/api/dashboards/7362/revisions/5/download
+            sed -i 's/${DS_PROMETHEUS}/Prometheus/g' grafana/dashboards_json/mysql.json
+
+            # Docker Compose (Util) - Tempo 서비스 제거
+            cat <<EOF > docker-compose.yml
+            version: '3.8'
+            services:
+              prometheus:
+                image: prom/prometheus:latest
+                container_name: prometheus
+                volumes:
+                  - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+                ports:
+                  - "9090:9090"
+                command:
+                  - '--config.file=/etc/prometheus/prometheus.yml'
+                  - '--web.enable-remote-write-receiver'
+                restart: always
+
+              grafana:
+                image: grafana/grafana:latest
+                container_name: grafana
+                ports:
+                  - "3000:3000"
+                environment:
+                  - GF_SECURITY_ADMIN_PASSWORD=admin
+                  - GF_INSTALL_PLUGINS=grafana-clock-panel
+                volumes:
+                  - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+                  - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+                  - ./grafana/dashboards_json:/etc/grafana/dashboards
+                depends_on:
+                  - prometheus
+                restart: always
+            EOF
+            
+            sudo docker-compose up -d
+
+      # 3. App 서버 배포
+      - name: Deploy App
+        uses: appleboy/ssh-action@v0.1.10
+        env:
+          DB_PW: ${{ secrets.DB_PASSWORD }}
+          MQ_PW: ${{ secrets.MQ_PASSWORD }}
+          DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
+          KAKAO_ID: ${{ secrets.KAKAO_CLIENT_ID }}
+          KAKAO_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          FINTECH_KEY: ${{ secrets.FINTECH_API_KEY }}
+          GEMINI_PROJECT: ${{ secrets.GEMINI_PROJECT_ID }}
+          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        with:
+          host: ${{ inputs.app_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DB_PW,MQ_PW,DOCKER_USER,KAKAO_ID,KAKAO_SECRET,FINTECH_KEY,GEMINI_PROJECT,AWS_KEY,AWS_SECRET
+          script: |
+            sudo docker login -u $DOCKER_USER -p ${{ secrets.DOCKER_PASSWORD }}
+            sudo docker pull $DOCKER_USER/nextdoor-app:perf
+            
+            sudo docker rm -f nextdoor-app 2>/dev/null || true
+            
+            sudo docker run -d -p 8080:8080 \
+              --name nextdoor-app \
+              -e APP_NAME="NextDoor-App" \
+              -e SERVER_PORT=8080 \
+              -e SPRING_PROFILES_ACTIVE=dev \
+              -e SPRING_DATASOURCE_URL="jdbc:mysql://${{ inputs.db_ip }}:3306/nextdoor?serverTimezone=Asia/Seoul&characterEncoding=UTF-8" \
+              -e SPRING_DATASOURCE_USERNAME=root \
+              -e SPRING_DATASOURCE_PASSWORD=$DB_PW \
+              -e SPRING_DATA_REDIS_HOST=${{ inputs.db_ip }} \
+              -e SPRING_RABBITMQ_HOST=${{ inputs.db_ip }} \
+              -e SPRING_RABBITMQ_USERNAME=ssafy \
+              -e SPRING_RABBITMQ_PASSWORD=$MQ_PW \
+              -e SPRING_DATA_MONGODB_URI="mongodb://${{ inputs.db_ip }}:27017/nextdoor" \
+              -e SPRING_ELASTICSEARCH_URIS="http://${{ inputs.db_ip }}:9200" \
+              -e KAKAO_CLIENT_ID=$KAKAO_ID \
+              -e KAKAO_CLIENT_SECRET=$KAKAO_SECRET \
+              -e FINTECH_API_KEY=$FINTECH_KEY \
+              -e GEMINI_PROJECT_ID=$GEMINI_PROJECT \
+              -e AWS_ACCESS_KEY_ID=$AWS_KEY \
+              -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET \
+              $DOCKER_USER/nextdoor-app:perf
+
+      # 4. 테스트 스크립트 업로드
+      - name: Upload Test Scripts
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ inputs.util_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "performance/scripts/*"
+          target: "/home/ubuntu/"
+
+      # 5. k6 실행
+      - name: Run k6
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ inputs.util_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            SCRIPT_PATH=$(find /home/ubuntu -name "test.js" | head -n 1)
+            
+            if [ -z "$SCRIPT_PATH" ]; then
+                echo "❌ Error: test.js not found!"
+                echo "<h1>Test Script Not Found</h1>" > /home/ubuntu/k6-report.html
+                exit 0
+            fi
+
+            echo "✅ Found script: $SCRIPT_PATH"
+            echo "🚀 Executing k6..."
+            
+            k6 run -e TARGET_IP=${{ inputs.app_ip }} $SCRIPT_PATH || echo "⚠️ k6 run failed, continuing..."
+
+            if [ ! -f "/home/ubuntu/k6-report.html" ]; then
+                echo "<h1>Test Failed or No Report</h1>" > /home/ubuntu/k6-report.html
+            fi
+
+      # 6. 리포트 다운로드
+      - name: Download Report (Manual SCP)
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+          scp -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ inputs.util_ip }}:/home/ubuntu/k6-report.html ./k6-report.html
+          rm private_key.pem
+
+      - name: Share Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-report
+          path: k6-report.html

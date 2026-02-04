@@ -40,12 +40,15 @@ public enum Category {
     }
 
     @JsonCreator
-    public static Category from(String displayName) {
+    public static Category from(String value) {
         for (Category ct : Category.values()) {
-            if (ct.displayName.equals(displayName)) {
+            if (ct.displayName.equals(value)) {
+                return ct;
+            }
+            if (ct.name().equalsIgnoreCase(value)) {
                 return ct;
             }
         }
-        throw new IllegalArgumentException(displayName + "는 존재하지 않는 카테고리입니다");
+        throw new IllegalArgumentException(value + "는 존재하지 않는 카테고리입니다");
     }
 }

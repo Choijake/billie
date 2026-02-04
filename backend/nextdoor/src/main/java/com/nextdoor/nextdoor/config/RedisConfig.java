@@ -14,24 +14,6 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig {
 
     /**
-     * Geo 전용 템플릿
-     * String-String 직렬화로 경량화
-     */
-    @Bean(name = "geoRedisTemplate")
-    public RedisTemplate<String, String> geoRedisTemplate(RedisConnectionFactory factory) {
-        RedisTemplate<String, String> template = new RedisTemplate<>();
-        template.setConnectionFactory(factory);
-
-        StringRedisSerializer stringSerializer = new StringRedisSerializer();
-        template.setKeySerializer(stringSerializer);
-        template.setValueSerializer(stringSerializer);
-        template.setHashKeySerializer(stringSerializer);
-        template.setHashValueSerializer(stringSerializer);
-
-        return template;
-    }
-
-    /**
      * 데이터 저장 전용 템플릿
      * JSON 직렬화로 복잡한 객체 저장 지원
      */

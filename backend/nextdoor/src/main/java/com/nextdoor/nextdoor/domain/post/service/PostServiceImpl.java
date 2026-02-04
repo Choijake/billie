@@ -2,9 +2,9 @@ package com.nextdoor.nextdoor.domain.post.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextdoor.nextdoor.domain.aianalysis.controller.dto.response.ProductConditionAnalysisResponseDto;
-import com.nextdoor.nextdoor.domain.feed.application.service.FeedService;
 import com.nextdoor.nextdoor.domain.post.controller.dto.response.AnalyzeProductImageResponse;
 import com.nextdoor.nextdoor.domain.post.controller.dto.response.CombinedProductAnalysisResponse;
+import com.nextdoor.nextdoor.domain.post.domain.Category;
 import com.nextdoor.nextdoor.domain.post.domain.Post;
 import com.nextdoor.nextdoor.domain.post.domain.PostLikeCount;
 import com.nextdoor.nextdoor.domain.post.exception.NoSuchPostException;
@@ -16,6 +16,8 @@ import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
 import com.nextdoor.nextdoor.domain.post.search.outbox.OutboxEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.OutboxEventRepository;
 import com.nextdoor.nextdoor.domain.post.event.PostLocationEvent;
+import com.nextdoor.nextdoor.domain.post.event.PostLikedEvent;
+import com.nextdoor.nextdoor.domain.post.event.PostViewedEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.event.PostDeleteEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.event.PostUpsertEvent;
 import com.nextdoor.nextdoor.domain.post.service.dto.*;
@@ -128,7 +130,22 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(readOnly = true)
     public PostDetailResult getPostDetail(PostDetailCommand command) {
-        return postQueryPort.getPostDetail(command.getPostId());
+        PostDetailResult result = postQueryPort.getPostDetail(command.getPostId());
+
+        // 게시글 조회 이벤트 발행 (Redis 점수 반영용)
+        if (command.getUserId() != null && result.getCategory() != null) {
+            try {
+                Category category = Category.from(result.getCategory());
+                eventPublisher.publishEvent(new PostViewedEvent(command.getUserId(), category));
+                log.debug("게시글 조회 이벤트 발행: userId={}, postId={}, category={}", 
+                        command.getUserId(), command.getPostId(), category);
+            } catch (Exception e) {
+                // 이벤트 발행 실패가 게시글 조회에 영향을 주지 않도록 예외 처리
+                log.error("게시글 조회 이벤트 발행 실패", e);
+            }
+        }
+
+        return result;
     }
 
     @Override
@@ -292,6 +309,9 @@ public class PostServiceImpl implements PostService {
         post.addLike(memberId);
         postLikeCountRepository.findById(postId).orElseGet(() -> new PostLikeCount(postId, 0L));
         postLikeCountRepository.incrementLikeCount(postId);
+
+        eventPublisher.publishEvent(new PostLikedEvent(memberId, post.getCategory()));
+
         return true;
     }
 

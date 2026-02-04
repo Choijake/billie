@@ -1,0 +1,27 @@
+name: Auto Performance System
+
+on: workflow_dispatch
+
+jobs:
+  setup:
+    uses: ./.github/workflows/setup.yml
+    secrets: inherit
+
+  test:
+    needs: setup
+    uses: ./.github/workflows/test.yml
+    with:
+      db_ip: ${{ needs.setup.outputs.db_ip }}
+      app_ip: ${{ needs.setup.outputs.app_ip }}
+      util_ip: ${{ needs.setup.outputs.util_ip }}
+      util_priv_ip: ${{ needs.setup.outputs.util_priv_ip }}
+    secrets: inherit
+
+  teardown:
+    needs: [setup, test]
+    if: always()
+    uses: ./.github/workflows/teardown.yml
+    with:
+      test_result: ${{ needs.test.result }}
+      grafana_url: "http://${{ needs.setup.outputs.util_ip }}:3000"
+    secrets: inherit

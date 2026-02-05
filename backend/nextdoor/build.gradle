@@ -103,6 +103,8 @@ dependencies {
 	implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
 
 	developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+
+	implementation 'ch.hsr:geohash:1.4.0'
 }
 
 tasks.named('test') {

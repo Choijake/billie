@@ -15,7 +15,7 @@ public class FeedSessionManager {
     private final FeedGenerator feedGenerator;
 
     private static final Duration SESSION_TTL = Duration.ofMinutes(20);
-    private static final int PAGE_SIZE = 20;
+    private static final int PAGE_SIZE = 10;
 
     /**
      * 페이지에 해당하는 ID 목록 반환

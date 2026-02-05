@@ -16,16 +16,17 @@ public class FeedGenerator {
     private final FeedCacheRepository feedRepository;
     private final PostScorer postScorer;
 
-    private static final int SEARCH_RADIUS_KM = 10;
+    private static final int SEARCH_RADIUS_KM = 5;
+    private static final int SESSION_SIZE = 150;
     private static final int GEO_LIMIT = 200;
-    private static final int SESSION_SIZE = 100;
 
     /**
      * 새로운 피드 목록 생성
      */
     public List<Long> generate(Long memberId, Double lat, Double lon) {
-        // 후보군 조회
+        // GEO_LIMIT 만큼 가져와서 -> 스코어링 -> SESSION_SIZE 만큼 자름
         List<Long> candidateIds = feedRepository.findNearbyPostIds(lat, lon, SEARCH_RADIUS_KM, GEO_LIMIT);
+
         if (candidateIds.isEmpty()) return Collections.emptyList();
 
         // 상세 정보, 스코어 조회
@@ -38,7 +39,7 @@ public class FeedGenerator {
                 .map(id -> new ScoredPost(id, postScorer.calculateScore(metadataMap.get(id), userInterests)))
                 .collect(Collectors.toList());
 
-        // 정렬 및 상위 추출
+        // 정렬
         scoredPosts.sort(Comparator.comparingDouble(ScoredPost::score).reversed());
 
         List<Long> topIds = scoredPosts.stream()

@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
+@Component
 @RequiredArgsConstructor
 @Profile("dev")
 @Slf4j

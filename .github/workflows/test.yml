@@ -29,6 +29,14 @@ on:
         required: true
       MQ_PASSWORD:
         required: true
+      KAKAO_CLIENT_ID:
+        required: true
+      KAKAO_CLIENT_SECRET:
+        required: true
+      FINTECH_API_KEY:
+        required: true
+      GEMINI_PROJECT_ID:
+        required: true
 
 jobs:
   run-test:
@@ -36,7 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # 1. DB 서버 배포
+      # ------------------------------------------------------------------------
+      # 1. DB 서버 배포 (MySQL, Redis, Mongo, ES, RabbitMQ + Exporter)
+      # ------------------------------------------------------------------------
       - name: Deploy DB Server
         uses: appleboy/ssh-action@v0.1.10
         env:
@@ -49,8 +59,22 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: DB_PW,MQ_PW,DOCKER_USER
           script: |
+            # 1. 기존 컨테이너 및 잔여 프로세스 정리
             sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
             
+            # 2. MySQL 접속 정보 파일 생성 
+            cat <<EOF > .my.cnf
+            [client]
+            user=root
+            password=$DB_PW
+            host=mysql
+            port=3306
+            EOF
+            
+            # 권한 설정 (Docker 컨테이너가 읽을 수 있도록)
+            chmod 644 .my.cnf
+            
+            # 3. docker-compose.yml 생성
             cat <<EOF > docker-compose.yml
             version: '3.8'
             services:
@@ -63,13 +87,12 @@ jobs:
                   - "MYSQL_ROOT_PASSWORD=$DB_PW"
                 command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
             
-              # MySQL Exporter: DB 상태를 Prometheus에 노출
+              # MySQL Exporter: 설정 파일(.my.cnf) 마운트 방식 적용
               mysqld-exporter:
                 image: prom/mysqld-exporter
                 ports: ['9104:9104']
-                environment:
-                  # Exporter가 mysql 컨테이너에 접속하기 위한 정보
-                  - DATA_SOURCE_NAME=root:$DB_PW@(mysql:3306)/
+                volumes:
+                  - ./.my.cnf:/.my.cnf
                 depends_on:
                   - mysql
 
@@ -95,10 +118,18 @@ jobs:
                   - 'xpack.security.enabled=false'
             EOF
             
+            # 4. 도커 로그인
             sudo docker login -u $DOCKER_USER -p ${{ secrets.DOCKER_PASSWORD }}
+            
+            # 5. 최신 이미지 강제 다운로드 
+            sudo docker-compose pull
+            
+            # 6. 실행
             sudo docker-compose up -d
 
-      # 2. Util 서버 배포
+      # ------------------------------------------------------------------------
+      # 2. Util 서버 배포 (Prometheus, Grafana)
+      # ------------------------------------------------------------------------
       - name: Deploy Util
         uses: appleboy/ssh-action@v0.1.10
         env:
@@ -168,15 +199,16 @@ jobs:
 
             # Dashboard JSON 다운로드
             echo "📥 Downloading Dashboards..."
+            
             # 1. Spring Boot Dashboard
             curl -f -L -o grafana/dashboards_json/springboot.json https://grafana.com/api/dashboards/19004/revisions/1/download
             sed -i 's/${DS_PROMETHEUS}/Prometheus/g' grafana/dashboards_json/springboot.json
             
-            # 2. ✅ [추가] MySQL Dashboard (ID: 7362 - MySQL Overview)
+            # 2. MySQL Dashboard (ID: 7362)
             curl -f -L -o grafana/dashboards_json/mysql.json https://grafana.com/api/dashboards/7362/revisions/5/download
             sed -i 's/${DS_PROMETHEUS}/Prometheus/g' grafana/dashboards_json/mysql.json
 
-            # Docker Compose (Util) - Tempo 서비스 제거
+            # Docker Compose (Util)
             cat <<EOF > docker-compose.yml
             version: '3.8'
             services:
@@ -211,7 +243,9 @@ jobs:
             
             sudo docker-compose up -d
 
+      # ------------------------------------------------------------------------
       # 3. App 서버 배포
+      # ------------------------------------------------------------------------
       - name: Deploy App
         uses: appleboy/ssh-action@v0.1.10
         env:
@@ -257,7 +291,9 @@ jobs:
               -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET \
               $DOCKER_USER/nextdoor-app:perf
 
-      # 4. 테스트 스크립트 업로드
+      # ------------------------------------------------------------------------
+      # 4. 테스트 스크립트 업로드 & k6 실행 & 결과 공유
+      # ------------------------------------------------------------------------
       - name: Upload Test Scripts
         uses: appleboy/scp-action@master
         with:
@@ -267,7 +303,6 @@ jobs:
           source: "performance/scripts/*"
           target: "/home/ubuntu/"
 
-      # 5. k6 실행
       - name: Run k6
         uses: appleboy/ssh-action@v0.1.10
         with:
@@ -292,7 +327,6 @@ jobs:
                 echo "<h1>Test Failed or No Report</h1>" > /home/ubuntu/k6-report.html
             fi
 
-      # 6. 리포트 다운로드
       - name: Download Report (Manual SCP)
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem

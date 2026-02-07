@@ -1,2 +1,2 @@
 FROM redis:latest
-COPY dump.rdb /data/dump.rdb
+COPY --chown=redis:redis dump.rdb /data/dump.rdb

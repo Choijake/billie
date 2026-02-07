@@ -295,7 +295,6 @@ jobs:
             sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
             
             # 1. MySQL Exporter 설정 파일 (.my.cnf)
-            # App 서버에서 원격 DB(DB_HOST)를 모니터링합니다.
             cat <<EOF > .my.cnf
             [client]
             user=root
@@ -316,17 +315,18 @@ jobs:
                   - APP_NAME="NextDoor-App"
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=dev
-                  # DB 연결 (DB Server)
-                  - SPRING_DATASOURCE_URL="jdbc:mysql://$DB_HOST:3306/nextdoor?serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+                  - SPRING_DATASOURCE_URL=jdbc:mysql://$DB_HOST:3306/nextdoor?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
                   - SPRING_DATASOURCE_USERNAME=root
                   - SPRING_DATASOURCE_PASSWORD=$DB_PW
-                  # Util 연결 (Redis, MQ, Mongo, ES)
+            
+                  # Util 연결
                   - SPRING_DATA_REDIS_HOST=$UTIL_HOST
                   - SPRING_RABBITMQ_HOST=$UTIL_HOST
                   - SPRING_RABBITMQ_USERNAME=ssafy
                   - SPRING_RABBITMQ_PASSWORD=$MQ_PW
                   - SPRING_DATA_MONGODB_URI="mongodb://$UTIL_HOST:27017/nextdoor"
                   - SPRING_ELASTICSEARCH_URIS="http://$UTIL_HOST:9200"
+            
                   # API Keys
                   - KAKAO_CLIENT_ID=$KAKAO_ID
                   - KAKAO_CLIENT_SECRET=$KAKAO_SECRET

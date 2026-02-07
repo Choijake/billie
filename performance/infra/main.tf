@@ -158,7 +158,7 @@ variable "ami_id" {
 
 resource "aws_instance" "db_server" {
   ami                    = var.ami_id
-  instance_type          = "t3.large"
+  instance_type          = "t3.medium"
   key_name               = "performance-test-key"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.sg.id]

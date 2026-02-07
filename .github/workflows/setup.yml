@@ -32,13 +32,15 @@ jobs:
           chmod +x gradlew
           ./gradlew clean build -x test
           
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-app:perf -f Dockerfile.app .
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-mysql:perf-data -f Dockerfile.db .
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-redis:perf-data -f Dockerfile.redis .
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-es:perf -f Dockerfile.es .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-app:perf -f docker/Dockerfile.app .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-mysql:perf-data -f docker/Dockerfile.db .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-redis:perf-data -f docker/Dockerfile.redis .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-es:perf -f docker/Dockerfile.es .
           
           docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
           docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-app:perf
+          docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-mysql:perf-data
+          docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-redis:perf-data
           docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-es:perf
 
       - name: Terraform Apply

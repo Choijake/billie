@@ -45,7 +45,106 @@ jobs:
       - uses: actions/checkout@v3
 
       # ------------------------------------------------------------------------
-      # 1. DB 서버 배포 (Only MySQL) -> t4g.small (2GB)
+      # 0. 공통: Docker + Compose 설치 보장 (Ubuntu 22.04 기준)
+      # ------------------------------------------------------------------------
+      - name: Ensure Docker/Compose on DB Server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ inputs.db_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            install_docker() {
+              if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                echo "✅ docker & docker compose already installed"
+                return
+              fi
+              echo "🛠 Installing docker + compose plugin..."
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker ubuntu || true
+              echo "✅ docker installed"
+            }
+            install_docker
+
+      - name: Ensure Docker/Compose on Util Server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ inputs.util_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            install_docker() {
+              if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                echo "✅ docker & docker compose already installed"
+                return
+              fi
+              echo "🛠 Installing docker + compose plugin..."
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker ubuntu || true
+              echo "✅ docker installed"
+            }
+            install_docker
+
+      - name: Ensure Docker/Compose on App Server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ inputs.app_ip }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            install_docker() {
+              if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                echo "✅ docker & docker compose already installed"
+                return
+              fi
+              echo "🛠 Installing docker + compose plugin..."
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker ubuntu || true
+              echo "✅ docker installed"
+            }
+            install_docker
+
+      # ------------------------------------------------------------------------
+      # 1. DB 서버 배포 (MySQL)
       # ------------------------------------------------------------------------
       - name: Deploy DB Server
         uses: appleboy/ssh-action@v0.1.10
@@ -59,6 +158,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: DB_PW,DOCKER_USER,DOCKER_PW
           script: |
+            set -euo pipefail
             sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
 
             cat <<EOF > docker-compose.yml
@@ -71,17 +171,16 @@ jobs:
                 environment:
                   - 'MYSQL_DATABASE=nextdoor'
                   - "MYSQL_ROOT_PASSWORD=\${DB_PW}"
-                # t4g.small(2GB) 기준: 버퍼풀 1G로 축소 (OOM 방지)
                 command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --innodb_buffer_pool_size=1G --innodb_buffer_pool_instances=1
                 restart: always
             EOF
 
             sudo docker login -u "${DOCKER_USER}" -p "${DOCKER_PW}"
-            sudo docker-compose pull
-            sudo docker-compose up -d
+            sudo docker compose pull
+            sudo docker compose up -d
 
       # ------------------------------------------------------------------------
-      # 2. Util 서버 배포
+      # 2. Util 서버 배포 (Redis + Redis Exporter + Monitoring + Dashboards)
       # ------------------------------------------------------------------------
       - name: Deploy Util - Prepare
         uses: appleboy/ssh-action@v0.1.10
@@ -90,6 +189,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -euo pipefail
             sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
             rm -rf /home/ubuntu/monitoring
 
@@ -123,7 +223,6 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         env:
           APP_IP: ${{ inputs.app_ip }}
-          DB_IP: ${{ inputs.db_ip }}
           MQ_PW: ${{ secrets.MQ_PASSWORD }}
           DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PW: ${{ secrets.DOCKER_PASSWORD }}
@@ -131,8 +230,9 @@ jobs:
           host: ${{ inputs.util_ip }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: APP_IP,DB_IP,MQ_PW,DOCKER_USER,DOCKER_PW
+          envs: APP_IP,MQ_PW,DOCKER_USER,DOCKER_PW
           script: |
+            set -euo pipefail
             chmod 777 /home/ubuntu/redis_data/dump.rdb
 
             cd /home/ubuntu/monitoring
@@ -161,7 +261,6 @@ jobs:
                     labels:
                       application: 'App-Server-Node'
 
-              # Redis Exporter
               - job_name: 'redis-exporter'
                 static_configs:
                   - targets: ['redis-exporter:9121']
@@ -193,9 +292,20 @@ jobs:
                   path: /etc/grafana/dashboards
             EOF
 
+            # 커스텀 스프링부트 대시보드 UID 치환
             sed -i 's/"uid": "Prometheus"/"uid": "prometheus"/g' grafana/dashboards_json/springboot.json
+
+            # MySQL 대시보드 자동 설치
             curl -f -L -o grafana/dashboards_json/mysql.json https://grafana.com/api/dashboards/7362/revisions/5/download
             sed -i 's/${DS_PROMETHEUS}/prometheus/g' grafana/dashboards_json/mysql.json
+
+            # Redis 대시보드 자동 설치 (redis_exporter 공식 contrib)
+            #    - 소스: oliver006/redis_exporter contrib/grafana_prometheus_redis_dashboard.json
+            curl -f -L -o grafana/dashboards_json/redis.json \
+              https://raw.githubusercontent.com/oliver006/redis_exporter/master/contrib/grafana_prometheus_redis_dashboard.json
+            # 대부분 DS_PROMETHEUS 또는 ${DS_PROMETHEUS}를 쓰므로 둘 다 커버
+            sed -i 's/${DS_PROMETHEUS}/prometheus/g' grafana/dashboards_json/redis.json || true
+            sed -i 's/"DS_PROMETHEUS"/"prometheus"/g' grafana/dashboards_json/redis.json || true
 
             cat <<EOF > docker-compose.yml
             version: '3.8'
@@ -214,7 +324,6 @@ jobs:
                 depends_on:
                   - redis
                 restart: always
-                # ports: ['9121:9121']
 
               rabbitmq:
                 image: 'rabbitmq:3-management'
@@ -266,8 +375,8 @@ jobs:
             EOF
 
             sudo docker login -u "${DOCKER_USER}" -p "${DOCKER_PW}"
-            sudo docker-compose pull
-            sudo docker-compose up -d
+            sudo docker compose pull
+            sudo docker compose up -d
 
       # ------------------------------------------------------------------------
       # 3. App 서버 배포
@@ -293,6 +402,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: DB_PW,MQ_PW,DOCKER_USER,DOCKER_PW,KAKAO_ID,KAKAO_SECRET,FINTECH_KEY,GEMINI_PROJECT,AWS_KEY,AWS_SECRET,DB_HOST,UTIL_HOST
           script: |
+            set -euo pipefail
             sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
 
             cat <<EOF > .my.cnf
@@ -314,18 +424,15 @@ jobs:
                   - APP_NAME="NextDoor-App"
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=dev
-
                   - SPRING_DATASOURCE_URL=jdbc:mysql://\${DB_HOST}:3306/nextdoor?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
                   - SPRING_DATASOURCE_USERNAME=root
                   - SPRING_DATASOURCE_PASSWORD=\${DB_PW}
-
                   - SPRING_DATA_REDIS_HOST=\${UTIL_HOST}
                   - SPRING_RABBITMQ_HOST=\${UTIL_HOST}
                   - SPRING_RABBITMQ_USERNAME=ssafy
                   - SPRING_RABBITMQ_PASSWORD=\${MQ_PW}
                   - SPRING_DATA_MONGODB_URI=mongodb://\${UTIL_HOST}:27017/nextdoor
                   - SPRING_ELASTICSEARCH_URIS=http://\${UTIL_HOST}:9200
-
                   - KAKAO_CLIENT_ID=\${KAKAO_ID}
                   - KAKAO_CLIENT_SECRET=\${KAKAO_SECRET}
                   - FINTECH_API_KEY=\${FINTECH_KEY}
@@ -355,8 +462,8 @@ jobs:
             EOF
 
             sudo docker login -u "${DOCKER_USER}" -p "${DOCKER_PW}"
-            sudo docker-compose pull
-            sudo docker-compose up -d
+            sudo docker compose pull
+            sudo docker compose up -d
 
       # ------------------------------------------------------------------------
       # 4. 테스트 스크립트 실행 (Util 서버에서 k6 실행)
@@ -377,12 +484,12 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -euo pipefail
             SCRIPT_PATH=$(find /home/ubuntu -name "test.js" | head -n 1)
             if [ -z "$SCRIPT_PATH" ]; then
-                echo "❌ Error: test.js not found!" > /home/ubuntu/k6-report.html
-                exit 0
+              echo "❌ Error: test.js not found!" > /home/ubuntu/k6-report.html
+              exit 0
             fi
-
             echo "🚀 Executing k6 on $SCRIPT_PATH targeting ${{ inputs.app_ip }}..."
             k6 run -e TARGET_IP=${{ inputs.app_ip }} $SCRIPT_PATH || true
 

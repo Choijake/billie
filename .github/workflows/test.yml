@@ -155,7 +155,7 @@ jobs:
             cat <<EOF > docker-compose.yml
             services:
               mysql:
-                image: "${DOCKER_USER}/nextdoor-mysql:perf-data"
+                image: "${DOCKER_USER}/nextdoor-mysql:perf-data-v2"
                 ports: ["3306:3306"]
                 user: root
                 environment:
@@ -290,7 +290,7 @@ jobs:
             curl -f -L -o grafana/dashboards_json/mysql.json https://grafana.com/api/dashboards/7362/revisions/5/download
             sed -i 's/${DS_PROMETHEUS}/prometheus/g' grafana/dashboards_json/mysql.json
 
-            # ✅ Redis 대시보드 자동 설치 (redis_exporter 공식)
+            # Redis 대시보드 자동 설치 (redis_exporter 공식)
             curl -f -L -o grafana/dashboards_json/redis.json \
               https://raw.githubusercontent.com/oliver006/redis_exporter/master/contrib/grafana_prometheus_redis_dashboard.json
             # 데이터소스 변수 치환 (케이스별 커버)

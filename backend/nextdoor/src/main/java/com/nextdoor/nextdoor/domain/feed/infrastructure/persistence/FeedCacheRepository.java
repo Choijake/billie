@@ -7,6 +7,8 @@ import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostMetadata;
 import com.nextdoor.nextdoor.domain.feed.domain.UserInterestScore;
 import com.nextdoor.nextdoor.domain.post.domain.Category;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.geo.*;
@@ -29,6 +31,7 @@ public class FeedCacheRepository {
     private final ObjectMapper objectMapper;
     private final PostRepository postRepository;
     private final UserInterestScoreRepository userInterestScoreRepository;
+    private final MeterRegistry meterRegistry;
 
     private static final String GEO_KEY_PREFIX = "feed:geo:";
     private static final String SESSION_KEY_PREFIX = "session:feed:";
@@ -39,15 +42,16 @@ public class FeedCacheRepository {
      * 위치 기반 조회
      */
     public List<Long> findNearbyPostIds(Double lat, Double lon, double radiusKm, int globalLimit) {
+        Timer.Sample totalSample = Timer.start(meterRegistry);
+
         // 중심점 및 검색 반경 설정
         Point center = new Point(lon, lat);
         Distance radius = new Distance(radiusKm, Metrics.KILOMETERS);
         Circle circle = new Circle(center, radius);
 
-        // 조회할 Geohash Key 목록 계산
         List<String> targetKeys = getTargetGeohashKeys(lat, lon);
 
-        // Redis Pipeline (네트워크 왕복 1번으로 단축)
+        Timer.Sample redisSample = Timer.start(meterRegistry);
         List<Object> pipelineResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
             for (String key : targetKeys) {
                 connection.geoCommands().geoRadius(
@@ -61,11 +65,15 @@ public class FeedCacheRepository {
             }
             return null;
         });
+        redisSample.stop(meterRegistry.timer("feed.nearby.step", "step", "redis_geo"));
 
-        if (pipelineResults == null) return Collections.emptyList();
+        if (pipelineResults == null) {
+            totalSample.stop(meterRegistry.timer("feed.nearby.total"));
+            return Collections.emptyList();
+        }
+        Timer.Sample streamSample = Timer.start(meterRegistry);
 
-        // 결과 병합 및 전역 정렬
-        return pipelineResults.stream()
+        List<Long> results = pipelineResults.stream()
                 .filter(Objects::nonNull)
                 .map(obj -> (GeoResults<RedisGeoCommands.GeoLocation<byte[]>>) obj)
                 .flatMap(geoResults -> geoResults.getContent().stream())
@@ -74,6 +82,12 @@ public class FeedCacheRepository {
                 .map(res -> Long.parseLong(new String(res.getContent().getName())))
                 .distinct()
                 .collect(Collectors.toList());
+
+        streamSample.stop(meterRegistry.timer("feed.nearby.step", "step", "stream_process"));
+
+        totalSample.stop(meterRegistry.timer("feed.nearby.total"));
+
+        return results;
     }
 
     /**
@@ -93,16 +107,12 @@ public class FeedCacheRepository {
         GeoHash centerHash = GeoHash.withCharacterPrecision(lat, lon, GEOHASH_PRECISION);
         List<String> keys = new ArrayList<>();
 
-        // 내 구역
         keys.add(GEO_KEY_PREFIX + centerHash.toBase32());
-
-        // 인접 8개 구역
         for (GeoHash neighbor : centerHash.getAdjacent()) {
             keys.add(GEO_KEY_PREFIX + neighbor.toBase32());
         }
         return keys;
     }
-
 
     // --- 세션 리스트 ---
     public void saveFeedSession(Long memberId, List<Long> postIds, Duration ttl) {
@@ -127,33 +137,46 @@ public class FeedCacheRepository {
         return ids.stream().map(Long::parseLong).toList();
     }
 
-    // --- 메타데이터 ---
+    // --- 메타데이터  ---
     public Map<Long, PostMetadata> getPostMetadata(List<Long> postIds) {
+        Timer.Sample totalSample = Timer.start(meterRegistry);
+
+        Timer redisTimer = meterRegistry.timer("feed.metadata.step", "step", "redis_get");
+        Timer jsonTimer = meterRegistry.timer("feed.metadata.step", "step", "json_parse");
+        Timer dbTimer = meterRegistry.timer("feed.metadata.step", "step", "db_fallback");
+
         Map<Long, PostMetadata> result = new HashMap<>();
         List<String> keys = postIds.stream().map(id -> "post:" + id + ":info").toList();
 
-        List<String> jsonList = redisTemplate.opsForValue().multiGet(keys);
-        if (jsonList == null) jsonList = Collections.emptyList();
+        List<String> jsonList = redisTimer.record(() ->
+                redisTemplate.opsForValue().multiGet(keys)
+        );
 
+        if (jsonList == null) jsonList = Collections.emptyList();
         List<Long> missedIds = new ArrayList<>();
 
         for (int i = 0; i < postIds.size(); i++) {
             Long postId = postIds.get(i);
             String json = (i < jsonList.size()) ? jsonList.get(i) : null;
+
             if (StringUtils.hasText(json)) {
-                try {
-                    result.put(postId, objectMapper.readValue(json, PostMetadata.class));
-                } catch (JsonProcessingException e) {
-                    missedIds.add(postId);
-                }
+                jsonTimer.record(() -> {
+                    try {
+                        result.put(postId, objectMapper.readValue(json, PostMetadata.class));
+                    } catch (JsonProcessingException e) {
+                        missedIds.add(postId);
+                    }
+                });
             } else {
                 missedIds.add(postId);
             }
         }
 
         if (!missedIds.isEmpty()) {
-            loadFromDBAndCache(missedIds, result);
+            dbTimer.record(() -> loadFromDBAndCache(missedIds, result));
         }
+
+        totalSample.stop(meterRegistry.timer("feed.metadata.total"));
         return result;
     }
 

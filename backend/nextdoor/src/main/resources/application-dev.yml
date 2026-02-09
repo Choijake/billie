@@ -88,12 +88,6 @@ spring:
           project-id: ${GEMINI_PROJECT_ID:dummy-project-id}
           location: us-central1
 
-feed:
-  geo:
-    radius-km: 5.0
-    candidate-size: 200
-    final-size: 20
-
   sync:
     interval-ms: 600000
     db-concurrency: 3

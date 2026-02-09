@@ -53,13 +53,6 @@ jobs:
             -f docker/Dockerfile.app \
             --push .
 
-          # MySQL
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-mysql:perf-data-v2 \
-            -f docker/Dockerfile.db \
-            --push .
-
           # Redis
           docker buildx build \
             --platform linux/amd64,linux/arm64 \

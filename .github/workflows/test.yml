@@ -155,7 +155,7 @@ jobs:
             cat <<EOF > docker-compose.yml
             services:
               mysql:
-                image: "${DOCKER_USER}/nextdoor-mysql:perf-data-v2"
+                image: "${DOCKER_USER}/nextdoor-mysql:perf-data-v3"
                 ports: ["3306:3306"]
                 user: root
                 environment:

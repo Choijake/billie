@@ -26,6 +26,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -228,32 +229,53 @@ public class FeedCacheRepository {
 
     // --- 관심사 조회 ---
     public Map<Category, Long> getUserInterests(Long memberId) {
+        Timer.Sample totalSample = Timer.start(meterRegistry);
+
         String key = "user:" + memberId + ":interest";
         Map<Category, Long> interests = new HashMap<>();
 
+        Timer.Sample redisReadSample = Timer.start(meterRegistry);
         Map<Object, Object> redisMap = redisTemplate.opsForHash().entries(key);
+        redisReadSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_read"));
 
+        // "EMPTY" 플래그 확인
+        if (redisMap.containsKey("EMPTY")) {
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_empty"));
+            return interests;
+        }
+
+        // 데이터 존재 시 반환
         if (!redisMap.isEmpty()) {
             redisMap.forEach((k, v) -> {
                 try {
                     interests.put(Category.valueOf((String) k), Long.parseLong((String) v));
                 } catch (Exception ignored) {}
             });
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_data"));
             return interests;
         }
 
+        Timer.Sample dbSample = Timer.start(meterRegistry);
         List<UserInterestScore> scores = userInterestScoreRepository.findByMemberId(memberId);
+        dbSample.stop(meterRegistry.timer("feed.interests.step", "step", "db_read"));
 
+        // DB에도 없으면 "EMPTY" 캐싱
         if (scores.isEmpty()) {
+            redisTemplate.opsForHash().put(key, "EMPTY", "1");
+            redisTemplate.expire(key, 1200, TimeUnit.SECONDS);
+
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_empty"));
             return interests;
         }
 
+        // 데이터 변환
         Map<String, String> stringScoreMap = new HashMap<>();
         for (UserInterestScore s : scores) {
             interests.put(s.getCategory(), s.getScore());
             stringScoreMap.put(s.getCategory().name(), String.valueOf(s.getScore()));
         }
 
+        Timer.Sample redisWriteSample = Timer.start(meterRegistry);
         redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
             byte[] keyBytes = key.getBytes();
             connection.hashCommands().hMSet(keyBytes,
@@ -263,6 +285,9 @@ public class FeedCacheRepository {
             connection.keyCommands().expire(keyBytes, 1200);
             return null;
         });
+        redisWriteSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_write"));
+
+        totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_data"));
 
         return interests;
     }

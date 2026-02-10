@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -22,7 +24,16 @@ public class ActionService {
         long weight = getActionWeight(actionType);
 
         try {
-            redisTemplate.opsForHash().increment(key, category.name(), weight);
+            redisTemplate.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+                byte[] keyBytes = key.getBytes();
+                byte[] fieldBytes = category.name().getBytes();
+
+                connection.hashCommands().hIncrBy(keyBytes, fieldBytes, weight);
+                connection.hashCommands().hDel(keyBytes, "EMPTY".getBytes());
+                connection.keyCommands().expire(keyBytes, TimeUnit.DAYS.toSeconds(1));
+
+                return null;
+            });
 
             log.debug("[Action Logged] memberId={}, category={}, action={}, weight={}",
                     memberId, category, actionType, weight);

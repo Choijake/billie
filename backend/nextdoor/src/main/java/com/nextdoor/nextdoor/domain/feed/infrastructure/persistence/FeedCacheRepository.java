@@ -44,6 +44,11 @@ public class FeedCacheRepository {
     private static final String SESSION_DATA_PREFIX = "session:data:";
     private static final int GEOHASH_PRECISION = 5;
 
+    public boolean hasFeedSession(Long memberId) {
+        String pointerKey = SESSION_PTR_PREFIX + memberId;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(pointerKey));
+    }
+
     // --- 위치 기반 조회 ---
     public List<Long> findNearbyPostIds(Double lat, Double lon, double radiusKm, int globalLimit) {
         Timer.Sample totalSample = Timer.start(meterRegistry);
@@ -124,7 +129,7 @@ public class FeedCacheRepository {
             // 2. 데이터 TTL 설정
             connection.keyCommands().expire(dataKeyBytes, ttl.toSeconds());
 
-            // 3. 포인터 교체 (Atomic Swap)
+            // 3. 포인터 교체
             connection.stringCommands().set(ptrKeyBytes, versionBytes);
 
             // 4. 포인터 TTL 설정

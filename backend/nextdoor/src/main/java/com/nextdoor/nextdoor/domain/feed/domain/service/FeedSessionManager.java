@@ -21,13 +21,11 @@ public class FeedSessionManager {
      * 페이지에 해당하는 ID 목록 반환
      */
     public List<Long> getIdsForPage(Long memberId, int page, Double lat, Double lon) {
-        // 첫 페이지 요청 시 세션 생성
-        if (page == 0) {
+        if (!feedRepository.hasFeedSession(memberId)) {
             List<Long> newFeed = feedGenerator.generate(memberId, lat, lon);
             feedRepository.saveFeedSession(memberId, newFeed, SESSION_TTL);
         }
 
-        // 해당 페이지 범위 조회
         return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE);
     }
 }

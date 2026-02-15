@@ -15,23 +15,21 @@ public class FeedSessionManager {
     private final FeedGenerator feedGenerator;
 
     private static final Duration SESSION_TTL = Duration.ofMinutes(20);
-    private static final int PAGE_SIZE = 10;
+    public static final int PAGE_SIZE_PUBLIC = 10;
 
     /**
      * 페이지에 해당하는 ID 목록 반환
      */
     public List<Long> getIdsForPage(Long memberId, int page, Double lat, Double lon) {
-        // 기존 세션 우선 확인
         if (page == 0) {
             if (feedRepository.hasFeedSession(memberId)) {
-                return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE);
+                return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE_PUBLIC);
             }
 
-            // 세션이 없을 때만 생성
             List<Long> newFeed = feedGenerator.generate(memberId, lat, lon);
             feedRepository.saveFeedSession(memberId, newFeed, SESSION_TTL);
         }
 
-        return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE);
+        return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE_PUBLIC);
     }
 }

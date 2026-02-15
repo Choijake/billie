@@ -1,10 +1,6 @@
 package com.nextdoor.nextdoor.domain.feed.application.service.dto;
-
 import lombok.Builder;
 
-/**
- * 피드 아이템 DTO (API 응답용)
- */
 @Builder
 public record FeedItemDto(
         Long postId,
@@ -24,6 +20,17 @@ public record FeedItemDto(
                 .deposit(metadata.deposit())
                 .imageUrl(metadata.imageUrl())
                 .createdAt(metadata.createdAt().toString())
+                .build();
+    }
+
+    public static FeedItemDto fromSummary(PostSummary summary) {
+        return FeedItemDto.builder()
+                .postId(summary.id())
+                .title(summary.title())
+                .category(summary.category())
+                .rentalFee(summary.rentalFee())
+                .deposit(summary.deposit())
+                .createdAt(summary.createdAt() != null ? summary.createdAt().toString() : "")
                 .build();
     }
 }

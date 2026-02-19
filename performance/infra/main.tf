@@ -2,6 +2,19 @@ provider "aws" {
   region = "ap-northeast-2"
 }
 
+# ------------------------------------------------------------------------
+# 0. AMI (Ubuntu 22.04 LTS) - architecture 별 최신 AMI를 SSM에서 자동 조회
+#   - arm64: t4g.*
+#   - amd64: t3.*
+# ------------------------------------------------------------------------
+data "aws_ssm_parameter" "ubuntu_2204_amd64" {
+  name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+}
+
+data "aws_ssm_parameter" "ubuntu_2204_arm64" {
+  name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id"
+}
+
 # 1. VPC & 네트워크 설정
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -151,14 +164,14 @@ resource "aws_security_group" "sg" {
   }
 }
 
+# ------------------------------------------------------------------------
 # 3. 서버(EC2) 정의
-variable "ami_id" {
-  default = "ami-04c56ae86baf007f1"
-}
-
+#   - DB / App : t4g.small (arm64)
+#   - Util     : t3.large  (amd64)
+# ------------------------------------------------------------------------
 resource "aws_instance" "db_server" {
-  ami                    = var.ami_id
-  instance_type          = "t3.large"
+  ami                    = data.aws_ssm_parameter.ubuntu_2204_arm64.value
+  instance_type          = "t4g.small"
   key_name               = "performance-test-key"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.sg.id]
@@ -168,8 +181,8 @@ resource "aws_instance" "db_server" {
 }
 
 resource "aws_instance" "app_server" {
-  ami                    = var.ami_id
-  instance_type          = "t3.medium"
+  ami                    = data.aws_ssm_parameter.ubuntu_2204_arm64.value
+  instance_type          = "t4g.small"
   key_name               = "performance-test-key"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.sg.id]
@@ -179,7 +192,7 @@ resource "aws_instance" "app_server" {
 }
 
 resource "aws_instance" "util_server" {
-  ami                    = var.ami_id
+  ami                    = data.aws_ssm_parameter.ubuntu_2204_amd64.value
   instance_type          = "t3.large"
   key_name               = "performance-test-key"
   subnet_id              = aws_subnet.public.id

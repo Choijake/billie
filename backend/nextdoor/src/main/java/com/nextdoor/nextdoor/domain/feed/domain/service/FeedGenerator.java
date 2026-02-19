@@ -15,6 +15,7 @@ public class FeedGenerator {
 
     private final FeedCacheRepository feedRepository;
     private final PostScorer postScorer;
+    private final Shuffler shuffler;
 
     private static final int SEARCH_RADIUS_KM = 5;
     private static final int SESSION_SIZE = 150;
@@ -48,7 +49,7 @@ public class FeedGenerator {
                 .collect(Collectors.toList());
 
         // 셔플
-        Collections.shuffle(topIds);
+        shuffler.shuffle(topIds);
         return topIds;
     }
 

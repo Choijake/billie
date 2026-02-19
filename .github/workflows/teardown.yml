@@ -28,20 +28,6 @@ jobs:
           aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: k6-report
-          path: .
-        continue-on-error: true
-
-      - name: Upload Report to Slack
-        uses: MeilCli/slack-upload-file@v3
-        with:
-          slack_token: ${{ secrets.SLACK_BOT_TOKEN }}
-          channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
-          file_path: 'k6-report.html'
-          initial_comment: "📊 테스트 종료 (결과: ${{ inputs.test_result }})"
-
       - name: Send Grafana URL via Bot
         if: always()
         run: |
@@ -49,6 +35,6 @@ jobs:
           -H 'Content-type: application/json' \
           --data '{
             "channel": "${{ secrets.SLACK_CHANNEL_ID }}",
-            "text": "🔍 Grafana 모니터링 접속 정보\n👉 URL: ${{ inputs.grafana_url }}\n🔑 ID: admin / PW: admin\n(분석을 위해 서버는 유지됩니다)"
+            "text": "📊 배포 종료 (결과: ${{ inputs.test_result }})\n🔍 Grafana 모니터링 접속 정보\n👉 URL: ${{ inputs.grafana_url }}\n🔑 ID: admin / PW: admin\n(분석을 위해 서버는 유지됩니다)"
           }' \
           https://slack.com/api/chat.postMessage

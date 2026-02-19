@@ -14,15 +14,16 @@ spring:
       lifecycle-management: start-and-stop
 
   transaction:
-    default-timeout: 100
+    default-timeout: 30
 
   datasource:
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 20
+      maximum-pool-size: 10
+      minimum-idle: 10
       connection-timeout: 3000
       leak-detection-threshold: 2000
       idle-timeout: 600000
+      max-lifetime: 1800000
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -33,7 +34,7 @@ spring:
         format_sql: true
         show_sql: false
         use_sql_comments: true
-        default_batch_fetch_size: 1000
+        default_batch_fetch_size: 100
         jdbc:
           batch_size: 50
     defer-datasource-initialization: true
@@ -55,9 +56,9 @@ spring:
       port: 6379
       lettuce:
         pool:
-          max-active: 20
-          max-idle: 10
-          min-idle: 5
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
       timeout: 3000ms
 
   security:
@@ -87,15 +88,9 @@ spring:
           project-id: ${GEMINI_PROJECT_ID:dummy-project-id}
           location: us-central1
 
-feed:
-  geo:
-    radius-km: 10.0
-    candidate-size: 200
-    final-size: 20
-
   sync:
     interval-ms: 600000
-    db-concurrency: 5
+    db-concurrency: 3
 
   cache:
     post-ttl-hours: 1
@@ -113,13 +108,13 @@ server:
   tomcat:
     threads:
       max: 50
-      min-spare: 10
-    accept-count: 100
+      min-spare: 5
+    accept-count: 50
 
 management:
   tracing:
     sampling:
-      probability: 1.0
+      probability: 0.1
   zipkin:
     tracing:
       endpoint: "http://localhost:9411/api/v2/spans"

@@ -9,6 +9,7 @@ import com.nextdoor.nextdoor.domain.rentalreservation.application.dto.PostDto;
 import com.querydsl.core.types.ConstructorExpression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 
 import java.math.BigDecimal;
@@ -22,6 +23,16 @@ public class RentalReservationPostQueryAdapter implements RentalReservationPostQ
     private final QPost qPost = QPost.post;
     private final QMember qMember = QMember.member;
     private final QProductImage qProductImage = QProductImage.productImage;
+
+    @Override
+    public Optional<PostDto> findByIdWithLock(Long postId) {
+        return Optional.ofNullable(jpaQueryFactory.select(createReservationQueryDtoProjection())
+                .from(qPost)
+                .join(qMember).on(qPost.authorId.eq(qMember.id)).fetchJoin()
+                .where(qPost.id.eq(postId))
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .fetchOne());
+    }
 
     @Override
     public Optional<PostDto> findById(Long postId) {

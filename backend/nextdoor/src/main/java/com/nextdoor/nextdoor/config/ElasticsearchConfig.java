@@ -12,6 +12,7 @@ import lombok.Getter;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.elasticsearch.client.ClientConfiguration;
@@ -20,6 +21,7 @@ import org.springframework.data.elasticsearch.repository.config.EnableElasticsea
 
 @Configuration
 @Getter
+@ConditionalOnProperty(name = "custom.elasticsearch.enabled", havingValue = "true")
 @EnableElasticsearchRepositories(basePackages = "com.nextdoor.nextdoor.domain.post.search")
 public class ElasticsearchConfig extends ElasticsearchConfiguration {
 

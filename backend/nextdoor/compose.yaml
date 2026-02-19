@@ -1,0 +1,53 @@
+services:
+  mysql:
+    image: 'mysql:8.0'
+    ports:
+      - '3306:3306'
+    environment:
+      - 'MYSQL_DATABASE=nextdoor'
+      - 'MYSQL_ROOT_PASSWORD=jodlrdldi2342!'
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ./db_data:/var/lib/mysql
+
+  redis:
+    image: 'redis:latest'
+    ports:
+      - '6379:6379'
+
+  rabbitmq:
+    image: 'rabbitmq:3-management'
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      - 'RABBITMQ_DEFAULT_USER=ssafy'
+      - 'RABBITMQ_DEFAULT_PASS=ssafy12p2e205'
+
+  mongodb:
+    image: 'mongo:6.0'
+    ports:
+      - '27017:27017'
+
+  # [핵심 수정] Dockerfile을 통해 빌드하여 실행 (nori 플러그인 포함)
+  elasticsearch:
+    build:
+      context: .
+      dockerfile: Dockerfile.elasticsearch
+    ports:
+      - '9200:9200'
+    environment:
+      - 'discovery.type=single-node'
+      - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
+      - 'xpack.security.enabled=false' # 개발용 보안 해제
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

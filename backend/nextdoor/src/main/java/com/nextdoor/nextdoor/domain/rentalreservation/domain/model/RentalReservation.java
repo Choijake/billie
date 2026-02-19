@@ -15,7 +15,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "rental_reservations")
+@Table(
+        name = "rental_reservation",
+        indexes = {
+                // 대기 중인 예약 조회 최적화
+                @Index(name = "idx_post_status_created", columnList = "post_id, rental_status, created_at"),
+                // 신청자별 조회 최적화
+                @Index(name = "idx_renter_status_created", columnList = "renter_id, rental_status, created_at")
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RentalReservation {
@@ -86,7 +94,7 @@ public class RentalReservation {
     @Column(name = "post_id")
     private Long postId;
 
-    public static RentalReservation create(
+    public static RentalReservation createHold(
             LocalDate startDate,
             LocalDate endDate,
             Money rentalFee,
@@ -108,7 +116,37 @@ public class RentalReservation {
                 .rentalReservationProcess(getRentalProcessForStatus(RentalReservationStatus.PENDING))
                 .createdAt(LocalDateTime.now())
                 .aiImages(new ArrayList<>())
-                .accountInfo(new AccountInfo("", ""))
+                .accountInfo(null)
+                .damageAnalysis(null)
+                .comparedAnalysis(null)
+                .depositId(null)
+                .finalAmount(null)
+                .build();
+    }
+
+    public static RentalReservation createPending(
+            LocalDate startDate,
+            LocalDate endDate,
+            Money rentalFee,
+            Money deposit,
+            Long ownerId,
+            Long renterId,
+            Long postId) {
+
+        Period period = new Period(startDate, endDate);
+
+        return RentalReservation.builder()
+                .period(period)
+                .rentalFee(rentalFee)
+                .deposit(deposit)
+                .ownerId(ownerId)
+                .renterId(renterId)
+                .postId(postId)
+                .rentalReservationStatus(RentalReservationStatus.PENDING)
+                .rentalReservationProcess(getRentalProcessForStatus(RentalReservationStatus.PENDING))
+                .createdAt(LocalDateTime.now())
+                .aiImages(new ArrayList<>())
+                .accountInfo(null)
                 .damageAnalysis(null)
                 .comparedAnalysis(null)
                 .depositId(null)
@@ -260,6 +298,8 @@ public class RentalReservation {
                 return RentalReservationProcess.RETURNED;
             case RENTAL_COMPLETED:
                 return RentalReservationProcess.RENTAL_COMPLETED;
+            case REJECTED:
+                return RentalReservationProcess.BEFORE_RENTAL;
             default:
                 return RentalReservationProcess.BEFORE_RENTAL;
         }

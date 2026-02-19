@@ -1,100 +1,177 @@
 package com.nextdoor.nextdoor.domain.rentalreservation.presentation.controller;
 
-import com.nextdoor.nextdoor.domain.rentalreservation.application.service.RentalQueryService;
+import com.nextdoor.nextdoor.domain.rentalreservation.application.service.ReservationService;
+import com.nextdoor.nextdoor.domain.rentalreservation.domain.model.RentalReservationStatus;
 import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.request.ReservationSaveRequestDto;
 import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.request.ReservationStatusUpdateRequestDto;
 import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.request.ReservationUpdateRequestDto;
+import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.response.DateReservationStatusDto;
+import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.response.ReservationListResponseDto;
 import com.nextdoor.nextdoor.domain.rentalreservation.presentation.dto.response.ReservationResponseDto;
-import com.nextdoor.nextdoor.domain.rentalreservation.application.service.ReservationService;
-import com.nextdoor.nextdoor.domain.rentalreservation.application.dto.SearchRentalCommand;
-import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.net.URI;
+import java.time.LocalDate;
+import java.util.List;
 
-@RequiredArgsConstructor
-@Slf4j
 @RestController
-@RequestMapping("/api/v1/reservations")
+@RequestMapping("/api/reservations")
+@RequiredArgsConstructor
 public class ReservationController {
 
     private final ReservationService reservationService;
-    private final RentalQueryService rentalQueryService;
 
+    /**
+     * 기능 1: 예약 신청 (PENDING)
+     */
     @PostMapping
     public ResponseEntity<ReservationResponseDto> createReservation(
-            HttpServletRequest request,
-            @AuthenticationPrincipal Long loginUserId,
-            @RequestBody ReservationSaveRequestDto reservationSaveRequestDto
-    ) {
-        ReservationResponseDto reservationResponseDto = reservationService.createReservation(loginUserId, reservationSaveRequestDto);
-        return ResponseEntity.created(URI.create(request.getRequestURI())).body(reservationResponseDto);
+            @AuthenticationPrincipal Long userId,
+            @RequestBody @Valid ReservationSaveRequestDto requestDto) {
+
+        ReservationResponseDto response =
+                reservationService.createPendingReservation(userId, requestDto);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    /**
+     * 기능 1-1: 예약 신청
+     */
+    @PostMapping("/hold")
+    public ResponseEntity<ReservationResponseDto> createHoldReservation(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody @Valid ReservationSaveRequestDto requestDto) {
+
+        ReservationResponseDto response =
+                reservationService.createHoldReservation(userId, requestDto);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * 예약 수정
+     */
     @PutMapping("/{reservationId}")
     public ResponseEntity<ReservationResponseDto> updateReservation(
-            @AuthenticationPrincipal Long loginUserId,
+            @AuthenticationPrincipal Long userId,
             @PathVariable Long reservationId,
-            @RequestBody ReservationUpdateRequestDto reservationUpdateRequestDto
-    ) {
-        ReservationResponseDto reservationResponseDto = reservationService.updateReservation(loginUserId, reservationId, reservationUpdateRequestDto);
-        return ResponseEntity.ok(reservationResponseDto);
+            @RequestBody @Valid ReservationUpdateRequestDto requestDto) {
+
+        ReservationResponseDto response =
+                reservationService.updateReservation(userId, reservationId, requestDto);
+
+        return ResponseEntity.ok(response);
     }
 
-    @PatchMapping("/{reservationId}/status")
-    public ResponseEntity<ReservationResponseDto> updateReservationStatus(
-            @AuthenticationPrincipal Long loginUserId,
+    /**
+     * 예약 확정
+     */
+    @PostMapping("/{reservationId}/confirm")
+    public ResponseEntity<Void> confirmReservation(
+            @AuthenticationPrincipal Long userId,
             @PathVariable Long reservationId,
-            @RequestBody ReservationStatusUpdateRequestDto reservationStatusUpdateRequestDto
-    ) {
-        reservationService.confirmReservation(loginUserId, reservationId, reservationStatusUpdateRequestDto);
+            @RequestBody @Valid ReservationStatusUpdateRequestDto requestDto) {
+
+        reservationService.confirmReservation(userId, reservationId, requestDto);
+
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * 예약 취소
+     */
     @DeleteMapping("/{reservationId}")
-    public ResponseEntity<ReservationResponseDto> deleteReservation(
-            @AuthenticationPrincipal Long loginUserId,
-            @PathVariable Long reservationId
-    ) {
-        reservationService.deleteReservation(loginUserId, reservationId);
+    public ResponseEntity<Void> deleteReservation(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long reservationId) {
+
+        reservationService.deleteReservation(userId, reservationId);
+
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/sent")
-    public ResponseEntity<Page<?>> retrieveSentReservations(
-            @AuthenticationPrincipal Long loginUserId,
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
-    ) {
-        SearchRentalCommand command = SearchRentalCommand.builder()
-                .userId(loginUserId)
-                .userRole("RENTER")
-                .condition("ACTIVE")
-                .pageable(pageable)
-                .build();
+    /**
+     * 기능 2: 날짜별 예약 확정 현황 조회 (달력)
+     */
+    @GetMapping("/calendar")
+    public ResponseEntity<List<DateReservationStatusDto>> getReservationCalendar(
+            @RequestParam Long postId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate) {
 
-        return ResponseEntity.ok(rentalQueryService.searchRentals(command));
+        List<DateReservationStatusDto> calendar =
+                reservationService.getReservationCalendar(postId, fromDate);
+
+        return ResponseEntity.ok(calendar);
     }
 
-    @GetMapping("/received")
-    public ResponseEntity<Page<?>> retrieveReceivedReservations(
-            @AuthenticationPrincipal Long loginUserId,
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
-    ) {
-        SearchRentalCommand command = SearchRentalCommand.builder()
-                .userId(loginUserId)
-                .userRole("OWNER")
-                .condition("ACTIVE")
-                .pageable(pageable)
-                .build();
+    /**
+     * 기능 3-1: 작성자의 대기 중인 예약 목록 조회
+     */
+    @GetMapping("/owner/pending")
+    public ResponseEntity<List<ReservationListResponseDto>> getPendingReservationsByOwner(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam Long postId) {
 
-        return ResponseEntity.ok(rentalQueryService.searchRentals(command));
+        List<ReservationListResponseDto> reservations =
+                reservationService.getPendingReservationsByOwner(userId, postId);
+
+        return ResponseEntity.ok(reservations);
+    }
+
+    /**
+     * 기능 3-2: 작성자의 확정된 예약 목록 조회
+     */
+    @GetMapping("/owner/confirmed")
+    public ResponseEntity<List<ReservationListResponseDto>> getConfirmedReservationsByOwner(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam Long postId) {
+
+        List<ReservationListResponseDto> reservations =
+                reservationService.getConfirmedReservationsByOwner(userId, postId);
+
+        return ResponseEntity.ok(reservations);
+    }
+
+    /**
+     * 기능 3: 작성자의 예약 목록 조회 (필터 통합)
+     */
+    @GetMapping("/owner")
+    public ResponseEntity<List<ReservationListResponseDto>> getOwnerReservations(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam Long postId,
+            @RequestParam(defaultValue = "PENDING") String filter) {
+
+        List<ReservationListResponseDto> reservations;
+
+        if ("PENDING".equalsIgnoreCase(filter)) {
+            reservations = reservationService.getPendingReservationsByOwner(userId, postId);
+        } else if ("CONFIRMED".equalsIgnoreCase(filter)) {
+            reservations = reservationService.getConfirmedReservationsByOwner(userId, postId);
+        } else {
+            throw new IllegalArgumentException("Invalid filter: " + filter);
+        }
+
+        return ResponseEntity.ok(reservations);
+    }
+
+    /**
+     * 기능 4: 신청자의 예약 목록 조회
+     */
+    @GetMapping("/renter")
+    public ResponseEntity<List<ReservationListResponseDto>> getRenterReservations(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(required = false) List<RentalReservationStatus> statuses) {
+
+        List<ReservationListResponseDto> reservations =
+                reservationService.getReservationsByRenter(userId, statuses);
+
+        return ResponseEntity.ok(reservations);
     }
 }

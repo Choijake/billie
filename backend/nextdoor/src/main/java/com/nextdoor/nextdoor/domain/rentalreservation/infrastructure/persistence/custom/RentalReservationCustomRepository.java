@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface RentalReservationCustomRepository {
-
+    List<RentalReservation> findPendingByPostIdAndDateRangeForUpdate(Long postId, LocalDate reqStart, LocalDate reqEnd);
     boolean existsOverlap(Long postId, LocalDate reqStart, LocalDate reqEnd);
     Optional<AiComparisonResult> findRentalWithImagesByRentalId(Long rentalId);
     boolean existsConfirmedOverlap(Long postId, LocalDate reqStart, LocalDate reqEnd);

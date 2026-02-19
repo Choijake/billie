@@ -53,6 +53,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/posts/**").permitAll()
                         .requestMatchers("/api/v1/feed/**").permitAll()
                         .requestMatchers("/api/reservations/**").permitAll()
+                        .requestMatchers("/api/v1/test/**").permitAll()
                         .anyRequest().authenticated())
 
                 .oauth2Login(oauth2 -> oauth2

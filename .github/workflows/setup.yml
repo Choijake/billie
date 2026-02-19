@@ -1,0 +1,69 @@
+name: Module - Setup Infra
+on:
+  workflow_call:
+    outputs:
+      db_ip:
+        value: ${{ jobs.terraform.outputs.db_ip }}
+      app_ip:
+        value: ${{ jobs.terraform.outputs.app_ip }}
+      util_ip:
+        value: ${{ jobs.terraform.outputs.util_ip }}
+      util_priv_ip:
+        value: ${{ jobs.terraform.outputs.util_priv_ip }}
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    outputs:
+      db_ip: ${{ steps.out.outputs.db_ip }}
+      app_ip: ${{ steps.out.outputs.app_ip }}
+      util_ip: ${{ steps.out.outputs.util_ip }}
+      util_priv_ip: ${{ steps.out.outputs.util_priv_ip }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup-tools
+        with:
+          aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Build & Push Images
+        working-directory: backend/nextdoor
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build -x test
+          
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-app:perf -f Dockerfile.app .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-mysql:perf-data -f Dockerfile.db .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-redis:perf-data -f Dockerfile.redis .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nextdoor-es:perf -f Dockerfile.es .
+          
+          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-app:perf
+          docker push ${{ secrets.DOCKER_USERNAME }}/nextdoor-es:perf
+
+      - name: Terraform Apply
+        id: infra
+        working-directory: performance/infra
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Wait for EC2 Boot
+        run: |
+          echo "Waiting 60 seconds for EC2 instances to fully boot..."
+          sleep 60
+
+      - name: Extract Outputs
+        id: out
+        working-directory: performance/infra
+        run: |
+          echo "db_ip=$(terraform output -raw db_ip)" >> $GITHUB_OUTPUT
+          echo "app_ip=$(terraform output -raw app_ip)" >> $GITHUB_OUTPUT
+          echo "util_ip=$(terraform output -raw util_ip)" >> $GITHUB_OUTPUT
+          echo "util_priv_ip=$(terraform output -raw util_priv_ip)" >> $GITHUB_OUTPUT
+
+      - name: Upload State
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-state
+          path: performance/infra/terraform.tfstate

@@ -20,6 +20,11 @@ public class RentalReservationAdapter implements RentalReservationRepository {
     private final RentalReservationCustomRepository customRepository;
 
     @Override
+    public Optional<RentalReservation> findByIdForUpdate(Long id) {
+        return jpaRepository.findByIdForUpdate(id);
+    }
+
+    @Override
     public Optional<RentalReservation> findById(Long id) {
         return jpaRepository.findById(id);
     }
@@ -77,5 +82,10 @@ public class RentalReservationAdapter implements RentalReservationRepository {
     @Override
     public long countPendingByPostIdAndDateRange(Long postId, LocalDate reqStart, LocalDate reqEnd) {
         return customRepository.countPendingByPostIdAndDateRange(postId, reqStart, reqEnd);
+    }
+
+    @Override
+    public List<RentalReservation> findPendingByPostIdAndDateRangeForUpdate(Long postId, LocalDate startDate, LocalDate endDate) {
+        return customRepository.findPendingByPostIdAndDateRangeForUpdate(postId, startDate, endDate);
     }
 }

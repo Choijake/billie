@@ -26,6 +26,23 @@ public class RentalReservationCustomRepositoryAdapter implements RentalReservati
     private final QAiImageComparisonPair aiImageComparisonPair = QAiImageComparisonPair.aiImageComparisonPair;
 
     @Override
+    public List<RentalReservation> findPendingByPostIdAndDateRangeForUpdate(Long postId, LocalDate reqStart, LocalDate reqEnd) {
+        QRentalReservation r = QRentalReservation.rentalReservation;
+
+        return queryFactory
+                .selectFrom(r)
+                .where(
+                        r.postId.eq(postId),
+                        r.rentalReservationStatus.eq(RentalReservationStatus.PENDING),
+                        r.period.startDate.loe(reqEnd),
+                        r.period.endDate.goe(reqStart)
+                )
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .fetch();
+    }
+
+
+    @Override
     public boolean existsOverlap(Long postId, LocalDate reqStart, LocalDate reqEnd) {
         QRentalReservation r = QRentalReservation.rentalReservation;
 
@@ -69,7 +86,6 @@ public class RentalReservationCustomRepositoryAdapter implements RentalReservati
                         r.period.startDate.loe(reqEnd),
                         r.period.endDate.goe(reqStart)
                 )
-                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                 .fetchFirst();
 
         return hit != null;

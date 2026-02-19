@@ -3,29 +3,37 @@ package com.nextdoor.nextdoor.domain.feed.application.service;
 import com.nextdoor.nextdoor.domain.post.domain.Category;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ActionService {
 
-    private final RedisTemplate<String, Object> dataRedisTemplate;
+    private final StringRedisTemplate redisTemplate;
 
-    // 행동별 가중치
     private static final long VIEW_WEIGHT = 1L;
     private static final long LIKE_WEIGHT = 3L;
     private static final long RESERVE_WEIGHT = 10L;
-
 
     public void logInteraction(Long memberId, Category category, ActionType actionType) {
         String key = generateUserInterestKey(memberId);
         long weight = getActionWeight(actionType);
 
         try {
-            dataRedisTemplate.opsForHash().increment(key, category.name(), weight);
+            redisTemplate.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+                byte[] keyBytes = key.getBytes();
+                byte[] fieldBytes = category.name().getBytes();
+
+                connection.hashCommands().hIncrBy(keyBytes, fieldBytes, weight);
+                connection.hashCommands().hDel(keyBytes, "EMPTY".getBytes());
+                connection.keyCommands().expire(keyBytes, TimeUnit.DAYS.toSeconds(1));
+
+                return null;
+            });
 
             log.debug("[Action Logged] memberId={}, category={}, action={}, weight={}",
                     memberId, category, actionType, weight);

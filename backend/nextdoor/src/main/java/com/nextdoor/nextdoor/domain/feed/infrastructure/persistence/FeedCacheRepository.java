@@ -26,6 +26,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -42,8 +43,12 @@ public class FeedCacheRepository {
     private static final String GEO_KEY_PREFIX = "feed:geo:";
     private static final String SESSION_PTR_PREFIX = "session:ptr:";
     private static final String SESSION_DATA_PREFIX = "session:data:";
-    private static final String INTEREST_KEY_PREFIX = "user:interest:";
     private static final int GEOHASH_PRECISION = 5;
+
+    public boolean hasFeedSession(Long memberId) {
+        String pointerKey = SESSION_PTR_PREFIX + memberId;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(pointerKey));
+    }
 
     // --- 위치 기반 조회 ---
     public List<Long> findNearbyPostIds(Double lat, Double lon, double radiusKm, int globalLimit) {
@@ -117,18 +122,18 @@ public class FeedCacheRepository {
             byte[] ptrKeyBytes = pointerKey.getBytes();
             byte[] versionBytes = newDataKey.getBytes();
 
-            // 1. 새 버전 키에 ZSET 데이터 저장
+            // 1. ZSET 데이터 저장
             for (ZSetOperations.TypedTuple<String> tuple : tuples) {
                 connection.zSetCommands().zAdd(dataKeyBytes, tuple.getScore(), tuple.getValue().getBytes());
             }
 
-            // 2. 새 데이터 TTL 설정
+            // 2. 데이터 TTL 설정
             connection.keyCommands().expire(dataKeyBytes, ttl.toSeconds());
 
-            // 3. 포인터 키 업데이트 (Swap)
+            // 3. 포인터 교체
             connection.stringCommands().set(ptrKeyBytes, versionBytes);
 
-            // 4. 포인터 키 TTL 설정
+            // 4. 포인터 TTL 설정
             connection.keyCommands().expire(ptrKeyBytes, ttl.toSeconds());
 
             return null;
@@ -138,14 +143,12 @@ public class FeedCacheRepository {
     public List<Long> getFeedSessionPage(Long memberId, int page, int size) {
         String pointerKey = SESSION_PTR_PREFIX + memberId;
 
-        // 현재 활성화된 세션 키 조회
         String dataKey = redisTemplate.opsForValue().get(pointerKey);
         if (dataKey == null) return Collections.emptyList();
 
         long start = (long) page * size;
         long end = start + size - 1;
 
-        // ZSET Range 조회 (순서 보장)
         Set<String> ids = redisTemplate.opsForZSet().range(dataKey, start, end);
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
 
@@ -187,7 +190,6 @@ public class FeedCacheRepository {
         }
 
         if (!missedIds.isEmpty()) {
-            // [Metric] 3. DB Fallback
             dbTimer.record(() -> loadFromDBAndCache(missedIds, result));
         }
 
@@ -198,7 +200,6 @@ public class FeedCacheRepository {
     private void loadFromDBAndCache(List<Long> postIds, Map<Long, PostMetadata> result) {
         List<PostMetadata> missedMetadataList = new ArrayList<>();
 
-        // DB 조회
         var posts = postRepository.findAllById(postIds);
         for (var post : posts) {
             PostMetadata metadata = PostMetadata.fromEntity(post);
@@ -228,33 +229,53 @@ public class FeedCacheRepository {
 
     // --- 관심사 조회 ---
     public Map<Category, Long> getUserInterests(Long memberId) {
-        String key = INTEREST_KEY_PREFIX + memberId;
+        Timer.Sample totalSample = Timer.start(meterRegistry);
+
+        String key = "user:" + memberId + ":interest";
         Map<Category, Long> interests = new HashMap<>();
 
+        Timer.Sample redisReadSample = Timer.start(meterRegistry);
         Map<Object, Object> redisMap = redisTemplate.opsForHash().entries(key);
+        redisReadSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_read"));
 
+        // "EMPTY" 플래그 확인
+        if (redisMap.containsKey("EMPTY")) {
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_empty"));
+            return interests;
+        }
+
+        // 데이터 존재 시 반환
         if (!redisMap.isEmpty()) {
             redisMap.forEach((k, v) -> {
                 try {
                     interests.put(Category.valueOf((String) k), Long.parseLong((String) v));
                 } catch (Exception ignored) {}
             });
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_data"));
             return interests;
         }
 
+        Timer.Sample dbSample = Timer.start(meterRegistry);
         List<UserInterestScore> scores = userInterestScoreRepository.findByMemberId(memberId);
+        dbSample.stop(meterRegistry.timer("feed.interests.step", "step", "db_read"));
 
+        // DB에도 없으면 "EMPTY" 캐싱
         if (scores.isEmpty()) {
+            redisTemplate.opsForHash().put(key, "EMPTY", "1");
+            redisTemplate.expire(key, 1200, TimeUnit.SECONDS);
+
+            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_empty"));
             return interests;
         }
 
+        // 데이터 변환
         Map<String, String> stringScoreMap = new HashMap<>();
         for (UserInterestScore s : scores) {
             interests.put(s.getCategory(), s.getScore());
             stringScoreMap.put(s.getCategory().name(), String.valueOf(s.getScore()));
         }
 
-        // DB에서 가져온 데이터를 Redis에 Write-Back
+        Timer.Sample redisWriteSample = Timer.start(meterRegistry);
         redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
             byte[] keyBytes = key.getBytes();
             connection.hashCommands().hMSet(keyBytes,
@@ -264,6 +285,9 @@ public class FeedCacheRepository {
             connection.keyCommands().expire(keyBytes, 1200);
             return null;
         });
+        redisWriteSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_write"));
+
+        totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_data"));
 
         return interests;
     }

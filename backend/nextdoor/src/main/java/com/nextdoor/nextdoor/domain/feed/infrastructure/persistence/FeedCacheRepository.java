@@ -4,7 +4,7 @@ import ch.hsr.geohash.GeoHash;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostMetadata;
-import com.nextdoor.nextdoor.domain.feed.domain.UserInterestScore;
+import com.nextdoor.nextdoor.domain.feed.domain.Exception.FeedRedisUnavailableException;
 import com.nextdoor.nextdoor.domain.post.domain.Category;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -26,7 +26,6 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,164 +36,197 @@ public class FeedCacheRepository {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final PostRepository postRepository;
-    private final UserInterestScoreRepository userInterestScoreRepository;
     private final MeterRegistry meterRegistry;
-
+    private final RedisCallExecutor redisCallExecutor;
     private static final String GEO_KEY_PREFIX = "feed:geo:";
     private static final String SESSION_PTR_PREFIX = "session:ptr:";
     private static final String SESSION_DATA_PREFIX = "session:data:";
     private static final int GEOHASH_PRECISION = 5;
 
-    public boolean hasFeedSession(Long memberId) {
-        String pointerKey = SESSION_PTR_PREFIX + memberId;
-        return Boolean.TRUE.equals(redisTemplate.hasKey(pointerKey));
+    private <T> T redisFailFast(String opName, java.util.function.Supplier<T> supplier) {
+        try {
+            return redisCallExecutor.call(supplier);
+        } catch (Exception e) {
+            throw new FeedRedisUnavailableException("[Redis Fail] op=" + opName, e);
+        }
     }
 
-    // --- 위치 기반 조회 ---
+    private void redisFailFastRun(String opName, Runnable runnable) {
+        try {
+            redisCallExecutor.run(runnable);
+        } catch (Exception e) {
+            throw new FeedRedisUnavailableException("[Redis Fail] op=" + opName, e);
+        }
+    }
+
+    private void redisBestEffort(String opName, Runnable runnable) {
+        try {
+            if (redisCallExecutor.isOpen()) {
+                log.warn("[Redis Skip - CB OPEN] op={}", opName);
+                return;
+            }
+            redisCallExecutor.run(runnable);
+        } catch (Exception e) {
+            log.warn("[Redis BestEffort Failed] op={}, err={}", opName, e.toString());
+        }
+    }
+
+    // 세션 존재 확인
+    public boolean hasFeedSession(Long memberId) {
+        String pointerKey = SESSION_PTR_PREFIX + memberId;
+        return redisFailFast("hasFeedSession", () -> Boolean.TRUE.equals(redisTemplate.hasKey(pointerKey)));
+    }
+
+    // 위치 기반 조회
     public List<Long> findNearbyPostIds(Double lat, Double lon, double radiusKm, int globalLimit) {
         Timer.Sample totalSample = Timer.start(meterRegistry);
 
-        Point center = new Point(lon, lat);
-        Distance radius = new Distance(radiusKm, Metrics.KILOMETERS);
-        Circle circle = new Circle(center, radius);
+        try {
+            return redisFailFast("findNearbyPostIds", () -> {
+                Point center = new Point(lon, lat);
+                Distance radius = new Distance(radiusKm, Metrics.KILOMETERS);
+                Circle circle = new Circle(center, radius);
 
-        List<String> targetKeys = getTargetGeohashKeys(lat, lon);
+                List<String> targetKeys = getTargetGeohashKeys(lat, lon);
+                int perKeyLimit = (int) Math.ceil((double) globalLimit / targetKeys.size()) + 20;
 
-        int perKeyLimit = (int) Math.ceil((double) globalLimit / targetKeys.size()) + 20;
+                Timer.Sample redisSample = Timer.start(meterRegistry);
+                List<Object> pipelineResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                    for (String key : targetKeys) {
+                        connection.geoCommands().geoRadius(
+                                key.getBytes(),
+                                circle,
+                                RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs()
+                                        .includeDistance()
+                                        .limit(perKeyLimit)
+                        );
+                    }
+                    return null;
+                });
+                redisSample.stop(meterRegistry.timer("feed.nearby.step", "step", "redis_geo"));
 
-        Timer.Sample redisSample = Timer.start(meterRegistry);
-        List<Object> pipelineResults = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-            for (String key : targetKeys) {
-                connection.geoCommands().geoRadius(
-                        key.getBytes(),
-                        circle,
-                        RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs()
-                                .includeDistance()
-                                .limit(perKeyLimit)
-                );
-            }
-            return null;
-        });
-        redisSample.stop(meterRegistry.timer("feed.nearby.step", "step", "redis_geo"));
+                if (pipelineResults == null) return Collections.emptyList();
 
-        if (pipelineResults == null) {
+                Timer.Sample streamSample = Timer.start(meterRegistry);
+                List<Long> results = pipelineResults.stream()
+                        .filter(Objects::nonNull)
+                        .map(obj -> (GeoResults<RedisGeoCommands.GeoLocation<byte[]>>) obj)
+                        .flatMap(geoResults -> geoResults.getContent().stream())
+                        .sorted(Comparator.comparingDouble(res -> res.getDistance().getValue()))
+                        .map(res -> Long.parseLong(new String(res.getContent().getName())))
+                        .distinct()
+                        .limit(globalLimit)
+                        .collect(Collectors.toList());
+                streamSample.stop(meterRegistry.timer("feed.nearby.step", "step", "stream_process"));
+
+                return results;
+            });
+        } finally {
             totalSample.stop(meterRegistry.timer("feed.nearby.total"));
-            return Collections.emptyList();
         }
-
-        Timer.Sample streamSample = Timer.start(meterRegistry);
-        List<Long> results = pipelineResults.stream()
-                .filter(Objects::nonNull)
-                .map(obj -> (GeoResults<RedisGeoCommands.GeoLocation<byte[]>>) obj)
-                .flatMap(geoResults -> geoResults.getContent().stream())
-                .sorted(Comparator.comparingDouble(res -> res.getDistance().getValue()))
-                .map(res -> Long.parseLong(new String(res.getContent().getName())))
-                .distinct()
-                .limit(globalLimit)
-                .collect(Collectors.toList());
-        streamSample.stop(meterRegistry.timer("feed.nearby.step", "step", "stream_process"));
-
-        totalSample.stop(meterRegistry.timer("feed.nearby.total"));
-
-        return results;
     }
 
+    // 위치 인덱싱
     public void addGeoLocation(Long postId, Double lat, Double lon) {
         String key = getGeohashKey(lat, lon);
-        redisTemplate.opsForGeo().add(key, new Point(lon, lat), String.valueOf(postId));
+        redisBestEffort("addGeoLocation", () ->
+                redisTemplate.opsForGeo().add(key, new Point(lon, lat), String.valueOf(postId))
+        );
     }
 
-    // --- 세션 관리 ---
+    // 세션 저장
     public void saveFeedSession(Long memberId, List<Long> postIds, Duration ttl) {
         if (postIds.isEmpty()) return;
 
-        long timestamp = System.currentTimeMillis();
-        String pointerKey = SESSION_PTR_PREFIX + memberId;
-        String newDataKey = SESSION_DATA_PREFIX + memberId + ":" + timestamp;
+        redisFailFastRun("saveFeedSession", () -> {
+            long timestamp = System.currentTimeMillis();
+            String pointerKey = SESSION_PTR_PREFIX + memberId;
+            String newDataKey = SESSION_DATA_PREFIX + memberId + ":" + timestamp;
 
-        Set<ZSetOperations.TypedTuple<String>> tuples = new HashSet<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            tuples.add(new DefaultTypedTuple<>(String.valueOf(postIds.get(i)), (double) i));
-        }
-
-        redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-            byte[] dataKeyBytes = newDataKey.getBytes();
-            byte[] ptrKeyBytes = pointerKey.getBytes();
-            byte[] versionBytes = newDataKey.getBytes();
-
-            // 1. ZSET 데이터 저장
-            for (ZSetOperations.TypedTuple<String> tuple : tuples) {
-                connection.zSetCommands().zAdd(dataKeyBytes, tuple.getScore(), tuple.getValue().getBytes());
+            Set<ZSetOperations.TypedTuple<String>> tuples = new HashSet<>();
+            for (int i = 0; i < postIds.size(); i++) {
+                tuples.add(new DefaultTypedTuple<>(String.valueOf(postIds.get(i)), (double) i));
             }
 
-            // 2. 데이터 TTL 설정
-            connection.keyCommands().expire(dataKeyBytes, ttl.toSeconds());
+            redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                byte[] dataKeyBytes = newDataKey.getBytes();
+                byte[] ptrKeyBytes = pointerKey.getBytes();
+                byte[] versionBytes = newDataKey.getBytes();
 
-            // 3. 포인터 교체
-            connection.stringCommands().set(ptrKeyBytes, versionBytes);
+                for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+                    connection.zSetCommands().zAdd(dataKeyBytes, tuple.getScore(), tuple.getValue().getBytes());
+                }
 
-            // 4. 포인터 TTL 설정
-            connection.keyCommands().expire(ptrKeyBytes, ttl.toSeconds());
+                connection.keyCommands().expire(dataKeyBytes, ttl.toSeconds());
+                connection.stringCommands().set(ptrKeyBytes, versionBytes);
+                connection.keyCommands().expire(ptrKeyBytes, ttl.toSeconds());
 
-            return null;
+                return null;
+            });
         });
     }
 
+    // 세션 조회
     public List<Long> getFeedSessionPage(Long memberId, int page, int size) {
-        String pointerKey = SESSION_PTR_PREFIX + memberId;
+        return redisFailFast("getFeedSessionPage", () -> {
+            String pointerKey = SESSION_PTR_PREFIX + memberId;
 
-        String dataKey = redisTemplate.opsForValue().get(pointerKey);
-        if (dataKey == null) return Collections.emptyList();
+            String dataKey = redisTemplate.opsForValue().get(pointerKey);
+            if (dataKey == null) return Collections.emptyList();
 
-        long start = (long) page * size;
-        long end = start + size - 1;
+            long start = (long) page * size;
+            long end = start + size - 1;
 
-        Set<String> ids = redisTemplate.opsForZSet().range(dataKey, start, end);
-        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+            Set<String> ids = redisTemplate.opsForZSet().range(dataKey, start, end);
+            if (ids == null || ids.isEmpty()) return Collections.emptyList();
 
-        return ids.stream().map(Long::parseLong).toList();
+            return ids.stream().map(Long::parseLong).toList();
+        });
     }
 
-    // --- 메타데이터 조회 ---
+    // 메타데이터 조회
     public Map<Long, PostMetadata> getPostMetadata(List<Long> postIds) {
-        Timer.Sample totalSample = Timer.start(meterRegistry);
+        return redisFailFast("getPostMetadata", () -> {
+            Timer.Sample totalSample = Timer.start(meterRegistry);
 
-        Timer redisTimer = meterRegistry.timer("feed.metadata.step", "step", "redis_get");
-        Timer jsonTimer = meterRegistry.timer("feed.metadata.step", "step", "json_parse");
-        Timer dbTimer = meterRegistry.timer("feed.metadata.step", "step", "db_fallback");
+            try {
+                Timer redisTimer = meterRegistry.timer("feed.metadata.step", "step", "redis_get");
+                Timer jsonTimer = meterRegistry.timer("feed.metadata.step", "step", "json_parse");
+                Timer dbTimer = meterRegistry.timer("feed.metadata.step", "step", "db_fallback");
 
-        Map<Long, PostMetadata> result = new HashMap<>();
-        List<String> keys = postIds.stream().map(id -> "post:" + id + ":info").toList();
+                Map<Long, PostMetadata> result = new HashMap<>();
+                List<String> keys = postIds.stream().map(id -> "post:" + id + ":info").toList();
 
-        List<String> jsonList = redisTimer.record(() ->
-                redisTemplate.opsForValue().multiGet(keys)
-        );
+                List<String> jsonList = redisTimer.record(() -> redisTemplate.opsForValue().multiGet(keys));
+                if (jsonList == null) jsonList = Collections.emptyList();
 
-        if (jsonList == null) jsonList = Collections.emptyList();
-        List<Long> missedIds = new ArrayList<>();
+                List<Long> missedIds = new ArrayList<>();
+                for (int i = 0; i < postIds.size(); i++) {
+                    Long postId = postIds.get(i);
+                    String json = (i < jsonList.size()) ? jsonList.get(i) : null;
 
-        for (int i = 0; i < postIds.size(); i++) {
-            Long postId = postIds.get(i);
-            String json = (i < jsonList.size()) ? jsonList.get(i) : null;
-            if (StringUtils.hasText(json)) {
-                jsonTimer.record(() -> {
-                    try {
-                        result.put(postId, objectMapper.readValue(json, PostMetadata.class));
-                    } catch (JsonProcessingException e) {
+                    if (StringUtils.hasText(json)) {
+                        jsonTimer.record(() -> {
+                            try {
+                                result.put(postId, objectMapper.readValue(json, PostMetadata.class));
+                            } catch (JsonProcessingException e) {
+                                missedIds.add(postId);
+                            }
+                        });
+                    } else {
                         missedIds.add(postId);
                     }
-                });
-            } else {
-                missedIds.add(postId);
+                }
+
+                if (!missedIds.isEmpty()) {
+                    dbTimer.record(() -> loadFromDBAndCache(missedIds, result));
+                }
+
+                return result;
+            } finally {
+                totalSample.stop(meterRegistry.timer("feed.metadata.total"));
             }
-        }
-
-        if (!missedIds.isEmpty()) {
-            dbTimer.record(() -> loadFromDBAndCache(missedIds, result));
-        }
-
-        totalSample.stop(meterRegistry.timer("feed.metadata.total"));
-        return result;
+        });
     }
 
     private void loadFromDBAndCache(List<Long> postIds, Map<Long, PostMetadata> result) {
@@ -208,88 +240,66 @@ public class FeedCacheRepository {
         }
 
         if (!missedMetadataList.isEmpty()) {
-            redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-                for (PostMetadata metadata : missedMetadataList) {
-                    try {
-                        String key = "post:" + metadata.postId() + ":info";
-                        String json = objectMapper.writeValueAsString(metadata);
-                        connection.stringCommands().setEx(
-                                key.getBytes(),
-                                3600,
-                                json.getBytes()
-                        );
-                    } catch (JsonProcessingException e) {
-                        log.error("JSON Serialization Error", e);
+            redisBestEffort("cachePostMetadata", () -> {
+                redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                    for (PostMetadata metadata : missedMetadataList) {
+                        try {
+                            String key = "post:" + metadata.postId() + ":info";
+                            String json = objectMapper.writeValueAsString(metadata);
+                            connection.stringCommands().setEx(key.getBytes(), 3600, json.getBytes());
+                        } catch (JsonProcessingException e) {
+                            log.error("JSON Serialization Error", e);
+                        }
                     }
-                }
-                return null;
+                    return null;
+                });
             });
         }
     }
 
-    // --- 관심사 조회 ---
+    // 관심사 조회
     public Map<Category, Long> getUserInterests(Long memberId) {
-        Timer.Sample totalSample = Timer.start(meterRegistry);
-
-        String key = "user:" + memberId + ":interest";
-        Map<Category, Long> interests = new HashMap<>();
-
-        Timer.Sample redisReadSample = Timer.start(meterRegistry);
-        Map<Object, Object> redisMap = redisTemplate.opsForHash().entries(key);
-        redisReadSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_read"));
-
-        // "EMPTY" 플래그 확인
-        if (redisMap.containsKey("EMPTY")) {
-            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_empty"));
-            return interests;
+        if (redisCallExecutor.isOpen()) {
+            return Collections.emptyMap();
         }
 
-        // 데이터 존재 시 반환
-        if (!redisMap.isEmpty()) {
-            redisMap.forEach((k, v) -> {
+        try {
+            return redisCallExecutor.call(() -> {
+                Timer.Sample totalSample = Timer.start(meterRegistry);
+
                 try {
-                    interests.put(Category.valueOf((String) k), Long.parseLong((String) v));
-                } catch (Exception ignored) {}
+                    String key = "user:" + memberId + ":interest";
+                    Map<Category, Long> interests = new HashMap<>();
+
+                    Timer.Sample redisReadSample = Timer.start(meterRegistry);
+                    Map<Object, Object> redisMap = redisTemplate.opsForHash().entries(key);
+                    redisReadSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_read"));
+
+                    if (redisMap.containsKey("EMPTY")) {
+                        totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_empty"));
+                        return interests;
+                    }
+
+                    if (!redisMap.isEmpty()) {
+                        redisMap.forEach((k, v) -> {
+                            try {
+                                interests.put(Category.valueOf((String) k), Long.parseLong((String) v));
+                            } catch (Exception ignored) {}
+                        });
+                        totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_data"));
+                        return interests;
+                    }
+
+                    totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_skip"));
+                    return interests;
+
+                } finally {
+
+                }
             });
-            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "hit_data"));
-            return interests;
+        } catch (Exception e) {
+            return Collections.emptyMap();
         }
-
-        Timer.Sample dbSample = Timer.start(meterRegistry);
-        List<UserInterestScore> scores = userInterestScoreRepository.findByMemberId(memberId);
-        dbSample.stop(meterRegistry.timer("feed.interests.step", "step", "db_read"));
-
-        // DB에도 없으면 "EMPTY" 캐싱
-        if (scores.isEmpty()) {
-            redisTemplate.opsForHash().put(key, "EMPTY", "1");
-            redisTemplate.expire(key, 1200, TimeUnit.SECONDS);
-
-            totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_empty"));
-            return interests;
-        }
-
-        // 데이터 변환
-        Map<String, String> stringScoreMap = new HashMap<>();
-        for (UserInterestScore s : scores) {
-            interests.put(s.getCategory(), s.getScore());
-            stringScoreMap.put(s.getCategory().name(), String.valueOf(s.getScore()));
-        }
-
-        Timer.Sample redisWriteSample = Timer.start(meterRegistry);
-        redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-            byte[] keyBytes = key.getBytes();
-            connection.hashCommands().hMSet(keyBytes,
-                    stringScoreMap.entrySet().stream()
-                            .collect(Collectors.toMap(e -> e.getKey().getBytes(), e -> e.getValue().getBytes()))
-            );
-            connection.keyCommands().expire(keyBytes, 1200);
-            return null;
-        });
-        redisWriteSample.stop(meterRegistry.timer("feed.interests.step", "step", "redis_write"));
-
-        totalSample.stop(meterRegistry.timer("feed.interests.total", "result", "miss_data"));
-
-        return interests;
     }
 
     private String getGeohashKey(Double lat, Double lon) {

@@ -2,6 +2,8 @@ package com.nextdoor.nextdoor.domain.feed.application.service;
 
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.FeedItemDto;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostMetadata;
+import com.nextdoor.nextdoor.domain.feed.domain.Exception.FeedRedisUnavailableException;
+import com.nextdoor.nextdoor.domain.feed.domain.service.EsFallbackFeedService;
 import com.nextdoor.nextdoor.domain.feed.domain.service.FeedSessionManager;
 import com.nextdoor.nextdoor.domain.feed.infrastructure.persistence.FeedCacheRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,27 +23,52 @@ public class FeedService {
 
     private final FeedSessionManager sessionManager;
     private final FeedCacheRepository feedRepository;
+    private final EsFallbackFeedService esFallbackFeedService;
 
     public List<FeedItemDto> getHomeFeed(Long memberId, Double lat, Double lon, int page) {
-        // 1. 세션 매니저를 통해 보여줄 ID 목록 확보
-        List<Long> targetIds = sessionManager.getIdsForPage(memberId, page, lat, lon);
+        if (lat == null || lon == null) return Collections.emptyList();
 
-        if (targetIds.isEmpty()) {
-            return Collections.emptyList();
+        try {
+            List<Long> targetIds = sessionManager.getIdsForPage(memberId, page, lat, lon);
+
+            if (targetIds.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            Map<Long, PostMetadata> metadataMap = feedRepository.getPostMetadata(targetIds);
+
+            return targetIds.stream()
+                    .map(metadataMap::get)
+                    .filter(Objects::nonNull)
+                    .map(FeedItemDto::from)
+                    .collect(Collectors.toList());
+
+        } catch (FeedRedisUnavailableException e) {
+            log.warn("[Feed Redis Unavailable → ES Fallback] memberId={}, page={}, err={}",
+                    memberId, page, e.getMessage());
+
+            return esFallbackFeedService.getHomeFeed(
+                    memberId,
+                    lat,
+                    lon,
+                    page,
+                    FeedSessionManager.PAGE_SIZE_PUBLIC
+            );
+
+        } catch (Exception e) {
+            log.error("[Feed Unexpected Error → ES Fallback] memberId={}, page={}, err={}",
+                    memberId, page, e.toString());
+
+            return esFallbackFeedService.getHomeFeed(
+                    memberId,
+                    lat,
+                    lon,
+                    page,
+                    FeedSessionManager.PAGE_SIZE_PUBLIC
+            );
         }
-
-        // 2. 상세 정보 조회
-        Map<Long, PostMetadata> metadataMap = feedRepository.getPostMetadata(targetIds);
-
-        // 3. 순서대로 DTO 변환
-        return targetIds.stream()
-                .map(metadataMap::get)
-                .filter(Objects::nonNull)
-                .map(FeedItemDto::from)
-                .collect(Collectors.toList());
     }
 
-    // 위치 인덱싱 메서드
     public void addGeoLocation(Long postId, Double lat, Double lon) {
         feedRepository.addGeoLocation(postId, lat, lon);
     }

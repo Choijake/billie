@@ -1,17 +1,14 @@
 package com.nextdoor.nextdoor.domain.feed.application.service.dto;
 
 import com.nextdoor.nextdoor.domain.post.domain.Category;
+import com.nextdoor.nextdoor.domain.post.domain.Post;
 import lombok.Builder;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 게시글 메타데이터 (Redis 캐싱용)
- *
- * [Serializable 필수]
- * - Redis에 저장하기 위해 직렬화 가능해야 함
- * - GenericJackson2JsonRedisSerializer가 자동 처리
+ * 캐싱용 게시글 메타데이터
  */
 @Builder
 public record PostMetadata(
@@ -22,4 +19,22 @@ public record PostMetadata(
         Long deposit,
         LocalDateTime createdAt,
         String imageUrl
-) implements Serializable {}
+) implements Serializable {
+
+    public static PostMetadata fromEntity(Post post) {
+        String firstImageUrl = null;
+        if (post.getProductImages() != null && !post.getProductImages().isEmpty()) {
+            firstImageUrl = post.getProductImages().get(0).getImageUrl();
+        }
+
+        return PostMetadata.builder()
+                .postId(post.getId())
+                .title(post.getTitle())
+                .category(post.getCategory())
+                .rentalFee(post.getRentalFee())
+                .deposit(post.getDeposit())
+                .createdAt(post.getCreatedAt())
+                .imageUrl(firstImageUrl)
+                .build();
+    }
+}

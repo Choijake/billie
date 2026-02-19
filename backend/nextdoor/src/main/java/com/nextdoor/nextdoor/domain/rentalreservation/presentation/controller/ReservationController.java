@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -31,21 +30,34 @@ public class ReservationController {
      */
     @PostMapping
     public ResponseEntity<ReservationResponseDto> createReservation(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestBody @Valid ReservationSaveRequestDto requestDto) {
 
-        ReservationResponseDto response =
-                reservationService.createPendingReservation(userId, requestDto);
+        // 1. 요청이 들어왔는지 확인
+        System.out.println("DEBUG >>> [ReservationController] 진입 - userId: " + userId);
+        System.out.println("DEBUG >>> [ReservationController] DTO: " + requestDto);
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        try {
+            // 2. 서비스 로직 실행
+            ReservationResponseDto response =
+                    reservationService.createPendingReservation(userId, requestDto);
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+
+        } catch (Exception e) {
+            // 3. [핵심] 에러 로그 강제 출력 !!!
+            System.err.println("🔥🔥🔥 [FATAL ERROR] 예약 생성 중 치명적 오류 발생 🔥🔥🔥");
+            e.printStackTrace(); // 스택 트레이스 출력
+            throw e; // 다시 던져서 기존 응답 흐름 유지
+        }
     }
 
     /**
-     * 기능 1-1: 예약 신청
+     * 기능 1-1: 예약 신청 (HOLD)
      */
     @PostMapping("/hold")
     public ResponseEntity<ReservationResponseDto> createHoldReservation(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestBody @Valid ReservationSaveRequestDto requestDto) {
 
         ReservationResponseDto response =
@@ -59,7 +71,7 @@ public class ReservationController {
      */
     @PutMapping("/{reservationId}")
     public ResponseEntity<ReservationResponseDto> updateReservation(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @PathVariable Long reservationId,
             @RequestBody @Valid ReservationUpdateRequestDto requestDto) {
 
@@ -74,7 +86,7 @@ public class ReservationController {
      */
     @PostMapping("/{reservationId}/confirm")
     public ResponseEntity<Void> confirmReservation(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @PathVariable Long reservationId,
             @RequestBody @Valid ReservationStatusUpdateRequestDto requestDto) {
 
@@ -88,7 +100,7 @@ public class ReservationController {
      */
     @DeleteMapping("/{reservationId}")
     public ResponseEntity<Void> deleteReservation(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @PathVariable Long reservationId) {
 
         reservationService.deleteReservation(userId, reservationId);
@@ -98,6 +110,7 @@ public class ReservationController {
 
     /**
      * 기능 2: 날짜별 예약 확정 현황 조회 (달력)
+     * (이건 원래 로그인 불필요한 조회 기능이라 userId 없음)
      */
     @GetMapping("/calendar")
     public ResponseEntity<List<DateReservationStatusDto>> getReservationCalendar(
@@ -116,7 +129,7 @@ public class ReservationController {
      */
     @GetMapping("/owner/pending")
     public ResponseEntity<List<ReservationListResponseDto>> getPendingReservationsByOwner(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestParam Long postId) {
 
         List<ReservationListResponseDto> reservations =
@@ -130,7 +143,7 @@ public class ReservationController {
      */
     @GetMapping("/owner/confirmed")
     public ResponseEntity<List<ReservationListResponseDto>> getConfirmedReservationsByOwner(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestParam Long postId) {
 
         List<ReservationListResponseDto> reservations =
@@ -144,7 +157,7 @@ public class ReservationController {
      */
     @GetMapping("/owner")
     public ResponseEntity<List<ReservationListResponseDto>> getOwnerReservations(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestParam Long postId,
             @RequestParam(defaultValue = "PENDING") String filter) {
 
@@ -166,7 +179,7 @@ public class ReservationController {
      */
     @GetMapping("/renter")
     public ResponseEntity<List<ReservationListResponseDto>> getRenterReservations(
-            @AuthenticationPrincipal Long userId,
+            @RequestHeader("userId") Long userId,
             @RequestParam(required = false) List<RentalReservationStatus> statuses) {
 
         List<ReservationListResponseDto> reservations =

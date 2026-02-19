@@ -2,6 +2,7 @@ package com.nextdoor.nextdoor.domain.post.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextdoor.nextdoor.domain.aianalysis.controller.dto.response.ProductConditionAnalysisResponseDto;
+import com.nextdoor.nextdoor.domain.feed.application.service.FeedService;
 import com.nextdoor.nextdoor.domain.post.controller.dto.response.AnalyzeProductImageResponse;
 import com.nextdoor.nextdoor.domain.post.controller.dto.response.CombinedProductAnalysisResponse;
 import com.nextdoor.nextdoor.domain.post.domain.Post;
@@ -14,6 +15,7 @@ import com.nextdoor.nextdoor.domain.post.repository.PostLikeRepository;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
 import com.nextdoor.nextdoor.domain.post.search.outbox.OutboxEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.OutboxEventRepository;
+import com.nextdoor.nextdoor.domain.post.event.PostLocationEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.event.PostDeleteEvent;
 import com.nextdoor.nextdoor.domain.post.search.outbox.event.PostUpsertEvent;
 import com.nextdoor.nextdoor.domain.post.service.dto.*;
@@ -23,6 +25,7 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -50,6 +53,7 @@ public class PostServiceImpl implements PostService {
     private final OutboxEventRepository outboxRepo;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final ApplicationEventPublisher eventPublisher;
 
     private Timer outboxInsertTimer;
     private Timer dbSaveTimer;
@@ -154,6 +158,18 @@ public class PostServiceImpl implements PostService {
                 .build();
         Post savedPost = postRepository.save(post);
         dbSave.stop(dbSaveTimer);
+
+        if (savedPost.getLatitude() != null && savedPost.getLongitude() != null) {
+            PostLocationEvent locationEvent = PostLocationEvent.builder()
+                    .postId(savedPost.getId())
+                    .latitude(savedPost.getLatitude())
+                    .longitude(savedPost.getLongitude())
+                    .build();
+
+            eventPublisher.publishEvent(locationEvent);
+            log.debug("위치 정보 이벤트 발행: postId={}, lat={}, lon={}", 
+                    savedPost.getId(), savedPost.getLatitude(), savedPost.getLongitude());
+        }
 
         Timer.Sample outboxSerialize = Timer.start(meterRegistry);
         long version = savedPost.getUpdatedAt()

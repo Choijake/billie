@@ -44,6 +44,36 @@ spring:
     redis:
       host: localhost
       port: 6379
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+      timeout: 3000ms
+
+feed:
+  geo:
+    radius-km: 10.0        # 검색 반경 (km)
+    candidate-size: 200    # 후보군 크기
+    final-size: 20         # 최종 반환 개수
+
+  sync:
+    interval-ms: 600000    # 동기화 주기 (10분)
+    db-concurrency: 5      # Semaphore 제한 (동시 DB 접근)
+
+  cache:
+    post-ttl-hours: 1      # 게시글 캐시 TTL
+
+logging:
+  level:
+    root: INFO
+    # 1. 내 코드의 디버그 로그 활성화
+    com.nextdoor: DEBUG
+
+    # 2. 어떤 URL로 매핑되는지, 혹은 404인지 확인
+    org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping: TRACE
+    org.springframework.web: DEBUG
+
 
   security:
     oauth2:

@@ -1,35 +1,43 @@
 package com.nextdoor.nextdoor.domain.feed.domain.service;
 
-import com.nextdoor.nextdoor.domain.feed.infrastructure.persistence.FeedCacheRepository;
-import lombok.RequiredArgsConstructor;
+import com.nextdoor.nextdoor.domain.feed.application.port.FeedSessionStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class FeedSessionManager {
 
-    private final FeedCacheRepository feedRepository;
+    private final FeedSessionStore sessionStore;
     private final FeedGenerator feedGenerator;
+    private final Duration sessionTtl;
 
-    private static final Duration SESSION_TTL = Duration.ofMinutes(20);
     public static final int PAGE_SIZE_PUBLIC = 10;
+
+    public FeedSessionManager(
+            FeedSessionStore sessionStore,
+            FeedGenerator feedGenerator,
+            @Value("${feed.session.ttl-seconds:1200}") long ttlSeconds
+    ) {
+        this.sessionStore = sessionStore;
+        this.feedGenerator = feedGenerator;
+        this.sessionTtl = Duration.ofSeconds(ttlSeconds);
+    }
 
     /**
      * 페이지에 해당하는 ID 목록 반환
      */
     public List<Long> getIdsForPage(Long memberId, int page, Double lat, Double lon) {
-        if (page == 0) {
-            if (feedRepository.hasFeedSession(memberId)) {
-                return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE_PUBLIC);
-            }
-
+        if (!sessionStore.hasValidSession(memberId)) {
             List<Long> newFeed = feedGenerator.generate(memberId, lat, lon);
-            feedRepository.saveFeedSession(memberId, newFeed, SESSION_TTL);
+            sessionStore.saveSession(memberId, newFeed, sessionTtl);
         }
 
-        return feedRepository.getFeedSessionPage(memberId, page, PAGE_SIZE_PUBLIC);
+        // 세션 TTL 슬라이딩
+        sessionStore.touchSession(memberId, sessionTtl);
+
+        return sessionStore.getSessionPage(memberId, page, PAGE_SIZE_PUBLIC);
     }
 }

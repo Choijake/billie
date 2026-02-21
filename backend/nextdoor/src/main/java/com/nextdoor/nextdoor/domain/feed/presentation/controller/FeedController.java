@@ -1,7 +1,7 @@
 package com.nextdoor.nextdoor.domain.feed.presentation.controller;
 
-import com.nextdoor.nextdoor.domain.feed.application.service.FeedService;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.FeedResponse;
+import com.nextdoor.nextdoor.domain.feed.application.usecase.GetHomeFeedUseCase;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class FeedController {
 
-    private final FeedService feedService;
+    private final GetHomeFeedUseCase getHomeFeedUseCase;
 
     @GetMapping("/home")
     public ResponseEntity<FeedResponse> getHomeFeed(
@@ -24,7 +24,7 @@ public class FeedController {
     ) {
         log.info("[Feed Request] memberId={}, lat={}, lon={}, page={}", memberId, latitude, longitude, page);
 
-        var items = feedService.getHomeFeed(memberId, latitude, longitude, page);
+        var items = getHomeFeedUseCase.getHomeFeed(memberId, latitude, longitude, page);
         var response = FeedResponse.of(items);
 
         return ResponseEntity.ok(response);

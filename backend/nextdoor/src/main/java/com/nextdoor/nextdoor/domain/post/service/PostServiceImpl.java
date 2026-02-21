@@ -120,7 +120,6 @@ public class PostServiceImpl implements PostService {
         }
     }
 
-
     @Override
     @Transactional(readOnly = true)
     public Page<SearchPostResult> searchPostsByUserAddress(SearchPostCommand command) {
@@ -132,15 +131,13 @@ public class PostServiceImpl implements PostService {
     public PostDetailResult getPostDetail(PostDetailCommand command) {
         PostDetailResult result = postQueryPort.getPostDetail(command.getPostId());
 
-        // 게시글 조회 이벤트 발행 (Redis 점수 반영용)
         if (command.getUserId() != null && result.getCategory() != null) {
             try {
                 Category category = Category.from(result.getCategory());
                 eventPublisher.publishEvent(new PostViewedEvent(command.getUserId(), category));
-                log.debug("게시글 조회 이벤트 발행: userId={}, postId={}, category={}", 
+                log.debug("게시글 조회 이벤트 발행: userId={}, postId={}, category={}",
                         command.getUserId(), command.getPostId(), category);
             } catch (Exception e) {
-                // 이벤트 발행 실패가 게시글 조회에 영향을 주지 않도록 예외 처리
                 log.error("게시글 조회 이벤트 발행 실패", e);
             }
         }
@@ -172,6 +169,8 @@ public class PostServiceImpl implements PostService {
                 .category(command.getCategory())
                 .authorId(command.getAuthorId())
                 .productImages(new ArrayList<>())
+                .deleted(false)
+                .deletedAt(null)
                 .build();
         Post savedPost = postRepository.save(post);
         dbSave.stop(dbSaveTimer);
@@ -184,7 +183,7 @@ public class PostServiceImpl implements PostService {
                     .build();
 
             eventPublisher.publishEvent(locationEvent);
-            log.debug("위치 정보 이벤트 발행: postId={}, lat={}, lon={}", 
+            log.debug("위치 정보 이벤트 발행: postId={}, lat={}, lon={}",
                     savedPost.getId(), savedPost.getLatitude(), savedPost.getLongitude());
         }
 
@@ -273,7 +272,7 @@ public class PostServiceImpl implements PostService {
 
     @Transactional(timeout = 5)
     protected void updatePostWithImage(Long postId, String imageUrl) {
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndDeletedFalse(postId)
                 .orElseThrow(() -> new NoSuchPostException("게시물을 찾을 수 없습니다: " + postId));
         post.addProductImage(imageUrl);
         postRepository.save(post);
@@ -302,7 +301,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(timeout = 5)
     public boolean likePost(Long postId, Long memberId) {
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndDeletedFalse(postId)
                 .orElseThrow(() -> new NoSuchPostException("ID가 " + postId + "인 게시물이 존재하지 않습니다."));
         if (postLikeRepository.existsByPostAndMemberId(post, memberId)) return false;
 
@@ -318,7 +317,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(timeout = 5)
     public boolean unlikePost(Long postId, Long memberId) {
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndDeletedFalse(postId)
                 .orElseThrow(() -> new NoSuchPostException("ID가 " + postId + "인 게시물이 존재하지 않습니다."));
         if (!postLikeRepository.existsByPostAndMemberId(post, memberId)) return false;
 
@@ -331,7 +330,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(readOnly = true)
     public boolean isPostLikedByMember(Long postId, Long memberId) {
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndDeletedFalse(postId)
                 .orElseThrow(() -> new NoSuchPostException("ID가 " + postId + "인 게시물이 존재하지 않습니다."));
         return postLikeRepository.existsByPostAndMemberId(post, memberId);
     }
@@ -352,7 +351,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(timeout = 10)
     public UpdatePostResult updatePost(UpdatePostCommand command) {
-        Post post = postRepository.findById(command.getPostId())
+        Post post = postRepository.findByIdAndDeletedFalse(command.getPostId())
                 .orElseThrow(() -> new NoSuchPostException("ID가 " + command.getPostId() + "인 게시물이 존재하지 않습니다."));
         if (!post.getAuthorId().equals(command.getAuthorId())) {
             throw new IllegalArgumentException("게시물 작성자만 수정할 수 있습니다.");
@@ -370,6 +369,8 @@ public class PostServiceImpl implements PostService {
                 .longitude(command.getPreferredLocation() != null ? command.getPreferredLocation().getLongitude() : post.getLongitude())
                 .authorId(post.getAuthorId())
                 .productImages(new ArrayList<>(post.getProductImages()))
+                .deleted(post.isDeleted())           // 🔹 soft delete 상태 유지
+                .deletedAt(post.getDeletedAt())
                 .build();
 
         updatedPost = postRepository.save(updatedPost);
@@ -418,6 +419,8 @@ public class PostServiceImpl implements PostService {
                     .longitude(updatedPost.getLongitude())
                     .authorId(updatedPost.getAuthorId())
                     .productImages(new ArrayList<>())
+                    .deleted(updatedPost.isDeleted())
+                    .deletedAt(updatedPost.getDeletedAt())
                     .build();
 
             updatedPost = postRepository.save(updatedPost);
@@ -434,13 +437,15 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(timeout = 10)
     public boolean deletePost(Long postId, Long userId) {
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndDeletedFalse(postId)
                 .orElseThrow(() -> new NoSuchPostException("ID가 " + postId + "인 게시물이 존재하지 않습니다."));
         if (!post.getAuthorId().equals(userId)) {
             throw new IllegalArgumentException("게시물 작성자만 삭제할 수 있습니다.");
         }
 
-        postRepository.delete(post);
+        post.softDelete();
+        postRepository.save(post);
+
         postLikeCountRepository.findById(postId).ifPresent(postLikeCountRepository::delete);
 
         long version = System.currentTimeMillis();

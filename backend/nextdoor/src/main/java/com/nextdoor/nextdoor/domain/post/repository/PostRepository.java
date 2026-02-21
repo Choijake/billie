@@ -55,4 +55,8 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
     @Query(value = "SELECT CURRENT_TIMESTAMP(6)", nativeQuery = true)
     LocalDateTime currentTimestamp();
+
+    Optional<Post> findByIdAndDeletedFalse(Long id);
+
+    List<Post> findAllByIdInAndDeletedFalse(List<Long> ids);
 }

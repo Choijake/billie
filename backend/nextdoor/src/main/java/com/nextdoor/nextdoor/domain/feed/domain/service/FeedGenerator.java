@@ -1,56 +1,45 @@
 package com.nextdoor.nextdoor.domain.feed.domain.service;
 
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostMetadata;
-import com.nextdoor.nextdoor.domain.feed.infrastructure.persistence.FeedCacheRepository;
 import com.nextdoor.nextdoor.domain.post.domain.Category;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 후보 ID + 메타 + 관심사"를 받아서 스코어링/정렬/상위N/셔플 결과를 만든다
+ */
 @Component
-@RequiredArgsConstructor
 public class FeedGenerator {
 
-    private final FeedCacheRepository feedRepository;
     private final PostScorer postScorer;
     private final Shuffler shuffler;
 
-    private static final int SEARCH_RADIUS_KM = 5;
-    private static final int SESSION_SIZE = 150;
-    private static final int GEO_LIMIT = 200;
+    public FeedGenerator(PostScorer postScorer, Shuffler shuffler) {
+        this.postScorer = postScorer;
+        this.shuffler = shuffler;
+    }
 
-    /**
-     * 새로운 피드 목록 생성
-     */
-    public List<Long> generate(Long memberId, Double lat, Double lon) {
-        // GEO_LIMIT 만큼 가져와서 -> 스코어링 -> SESSION_SIZE 만큼 자름
-        List<Long> candidateIds = feedRepository.findNearbyPostIds(lat, lon, SEARCH_RADIUS_KM, GEO_LIMIT);
+    public List<Long> generateSessionIds(
+            List<Long> candidateIds,
+            Map<Long, PostMetadata> metadataMap,
+            Map<Category, Long> userInterests,
+            int sessionSize
+    ) {
+        if (candidateIds == null || candidateIds.isEmpty()) return Collections.emptyList();
 
-        if (candidateIds.isEmpty()) return Collections.emptyList();
-
-        // 상세 정보, 스코어 조회
-        Map<Long, PostMetadata> metadataMap = feedRepository.getPostMetadata(candidateIds);
-        Map<Category, Long> userInterests = feedRepository.getUserInterests(memberId);
-
-        // 점수 계산
-        List<ScoredPost> scoredPosts = candidateIds.stream()
-                .filter(metadataMap::containsKey)
-                .map(id -> new ScoredPost(id, postScorer.calculateScore(metadataMap.get(id), userInterests)))
+        List<ScoredPost> scored = candidateIds.stream()
+                .map(metadataMap::get)
+                .filter(Objects::nonNull)
+                .map(md -> new ScoredPost(md.postId(), postScorer.calculateScore(md, userInterests)))
+                .sorted(Comparator.comparingDouble(ScoredPost::score).reversed())
+                .limit(sessionSize)
                 .collect(Collectors.toList());
 
-        // 정렬
-        scoredPosts.sort(Comparator.comparingDouble(ScoredPost::score).reversed());
-
-        List<Long> topIds = scoredPosts.stream()
-                .limit(SESSION_SIZE)
-                .map(ScoredPost::id)
-                .collect(Collectors.toList());
-
-        // 셔플
-        shuffler.shuffle(topIds);
-        return topIds;
+        List<Long> top = scored.stream().map(ScoredPost::id).collect(Collectors.toList());
+        shuffler.shuffle(top);
+        return top;
     }
 
     private record ScoredPost(Long id, double score) {}

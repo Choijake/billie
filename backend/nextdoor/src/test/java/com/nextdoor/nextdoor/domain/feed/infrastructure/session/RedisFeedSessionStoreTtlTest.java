@@ -1,6 +1,8 @@
-package com.nextdoor.nextdoor.domain.feed.infrastructure.persistence;
+package com.nextdoor.nextdoor.domain.feed.infrastructure.session;
 
 import com.nextdoor.nextdoor.domain.feed.application.port.FeedSessionStore;
+import com.nextdoor.nextdoor.domain.feed.infrastructure.redis.RedisCallExecutor;
+import com.nextdoor.nextdoor.domain.feed.infrastructure.redis.RedisExecution;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,7 +13,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -39,16 +40,22 @@ class RedisFeedSessionStoreTtlTest {
         redisTemplate.setConnectionFactory(cf);
         redisTemplate.afterPropertiesSet();
 
-        // CircuitBreaker는 테스트에서 항상 CLOSED로 두면 됨
         CircuitBreaker cb = CircuitBreaker.ofDefaults("feedRedis");
-        RedisCallExecutor redisCallExecutor = new RedisCallExecutor(cb);
+        RedisCallExecutor callExecutor = new RedisCallExecutor(cb);
+        RedisExecution redisExecution = new RedisExecution(callExecutor);
 
-        // Clock은 고정(결정적 키)으로 두는 게 테스트에 유리
-        Clock fixedClock = Clock.systemUTC();
-        keyFactory = new TimestampSessionKeyFactory(fixedClock);
+        // 고정된 세션 ID를 사용해 결정적인 dataKey 생성
+        SessionIdGenerator idGenerator = new SessionIdGenerator() {
+            @Override
+            public String nextId() {
+                return "fixed-session";
+            }
+        };
+        keyFactory = new TimestampSessionKeyFactory(idGenerator);
 
-        sessionStore = new RedisFeedSessionStore(redisTemplate, redisCallExecutor, keyFactory);
+        sessionStore = new RedisFeedSessionStoreAdapter(redisTemplate, redisExecution, keyFactory);
 
+        // 테스트 시작 전에 Redis 비우기
         redisTemplate.getConnectionFactory().getConnection().flushAll();
     }
 

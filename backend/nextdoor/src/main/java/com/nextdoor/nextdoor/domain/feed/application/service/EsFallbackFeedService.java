@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.feed.domain.service;
+package com.nextdoor.nextdoor.domain.feed.application.service;
 
 import com.nextdoor.nextdoor.domain.feed.application.port.FeedSearchPort;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.FeedItemDto;
@@ -14,7 +14,7 @@ public class EsFallbackFeedService {
 
     private final FeedSearchPort feedSearchPort;
 
-    public List<FeedItemDto> getHomeFeed(Long memberId, Double lat, Double lon, int page, int size) {
+    public List<FeedItemDto> getHomeFeed(Double lat, Double lon, int page, int size) {
         if (lat == null || lon == null) return List.of();
 
         List<PostSummary> summaries = feedSearchPort.searchNearbyFast(lat, lon, page, size);

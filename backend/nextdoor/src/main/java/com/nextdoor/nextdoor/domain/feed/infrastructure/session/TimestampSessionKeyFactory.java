@@ -1,16 +1,14 @@
-package com.nextdoor.nextdoor.domain.feed.infrastructure.persistence;
+package com.nextdoor.nextdoor.domain.feed.infrastructure.session;
 
 import org.springframework.stereotype.Component;
-
-import java.time.Clock;
 
 @Component
 public class TimestampSessionKeyFactory implements FeedSessionKeyFactory {
 
-    private final Clock clock;
+    private final SessionIdGenerator idGenerator;
 
-    public TimestampSessionKeyFactory(Clock clock) {
-        this.clock = clock;
+    public TimestampSessionKeyFactory(SessionIdGenerator idGenerator) {
+        this.idGenerator = idGenerator;
     }
 
     @Override
@@ -20,6 +18,6 @@ public class TimestampSessionKeyFactory implements FeedSessionKeyFactory {
 
     @Override
     public String dataKey(Long memberId) {
-        return "session:data:" + memberId + ":" + clock.millis();
+        return "session:data:" + memberId + ":" + idGenerator.nextId();
     }
 }

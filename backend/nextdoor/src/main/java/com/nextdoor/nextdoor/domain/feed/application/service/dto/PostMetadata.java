@@ -1,7 +1,7 @@
 package com.nextdoor.nextdoor.domain.feed.application.service.dto;
 
 import com.nextdoor.nextdoor.domain.post.domain.Category;
-import com.nextdoor.nextdoor.domain.post.domain.Post;
+import com.nextdoor.nextdoor.domain.post.port.PostFeedMetadata;
 import lombok.Builder;
 
 import java.io.Serializable;
@@ -21,20 +21,16 @@ public record PostMetadata(
         String imageUrl
 ) implements Serializable {
 
-    public static PostMetadata fromEntity(Post post) {
-        String firstImageUrl = null;
-        if (post.getProductImages() != null && !post.getProductImages().isEmpty()) {
-            firstImageUrl = post.getProductImages().get(0).getImageUrl();
-        }
+    public static PostMetadata fromFeedMetadata(PostFeedMetadata meta) {
+        if (meta == null) return null;
 
         return PostMetadata.builder()
-                .postId(post.getId())
-                .title(post.getTitle())
-                .category(post.getCategory())
-                .rentalFee(post.getRentalFee())
-                .deposit(post.getDeposit())
-                .createdAt(post.getCreatedAt())
-                .imageUrl(firstImageUrl)
+                .postId(meta.id())
+                .title(meta.title())
+                .category(meta.category())
+                .rentalFee(meta.rentalFee())
+                .deposit(meta.deposit())
+                .createdAt(meta.createdAt())
                 .build();
     }
 }

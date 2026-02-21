@@ -1,7 +1,6 @@
-package com.nextdoor.nextdoor.domain.feed.infrastructure.persistence;
+package com.nextdoor.nextdoor.domain.feed.infrastructure.redis;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -21,17 +20,5 @@ public class RedisCallExecutor {
     public void run(Runnable runnable) {
         Runnable decorated = CircuitBreaker.decorateRunnable(feedRedisCircuitBreaker, runnable);
         decorated.run();
-    }
-
-    public boolean isOpen() {
-        return feedRedisCircuitBreaker.getState() == CircuitBreaker.State.OPEN;
-    }
-
-    public CircuitBreaker.State state() {
-        return feedRedisCircuitBreaker.getState();
-    }
-
-    public boolean isCallNotPermitted(Throwable t) {
-        return t instanceof CallNotPermittedException;
     }
 }

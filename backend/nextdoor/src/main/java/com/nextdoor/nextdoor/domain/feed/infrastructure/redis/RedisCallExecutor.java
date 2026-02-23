@@ -1,24 +1,47 @@
 package com.nextdoor.nextdoor.domain.feed.infrastructure.redis;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.function.Supplier;
 
 @Component
-@RequiredArgsConstructor
 public class RedisCallExecutor {
 
-    private final CircuitBreaker feedRedisCircuitBreaker;
+    private final CircuitBreaker feedRedisGeoCircuitBreaker;
+    private final CircuitBreaker feedRedisSessionCircuitBreaker;
+    private final CircuitBreaker feedRedisMetadataCircuitBreaker;
+    private final CircuitBreaker feedRedisInterestCircuitBreaker;
 
-    public <T> T call(Supplier<T> supplier) {
-        Supplier<T> decorated = CircuitBreaker.decorateSupplier(feedRedisCircuitBreaker, supplier);
+    public RedisCallExecutor(
+            @Qualifier("feedRedisGeoCircuitBreaker") CircuitBreaker feedRedisGeoCircuitBreaker,
+            @Qualifier("feedRedisSessionCircuitBreaker") CircuitBreaker feedRedisSessionCircuitBreaker,
+            @Qualifier("feedRedisMetadataCircuitBreaker") CircuitBreaker feedRedisMetadataCircuitBreaker,
+            @Qualifier("feedRedisInterestCircuitBreaker") CircuitBreaker feedRedisInterestCircuitBreaker
+    ) {
+        this.feedRedisGeoCircuitBreaker = feedRedisGeoCircuitBreaker;
+        this.feedRedisSessionCircuitBreaker = feedRedisSessionCircuitBreaker;
+        this.feedRedisMetadataCircuitBreaker = feedRedisMetadataCircuitBreaker;
+        this.feedRedisInterestCircuitBreaker = feedRedisInterestCircuitBreaker;
+    }
+
+    public <T> T call(String op, Supplier<T> supplier) {
+        Supplier<T> decorated = CircuitBreaker.decorateSupplier(resolveCircuitBreaker(op), supplier);
         return decorated.get();
     }
 
-    public void run(Runnable runnable) {
-        Runnable decorated = CircuitBreaker.decorateRunnable(feedRedisCircuitBreaker, runnable);
+    public void run(String op, Runnable runnable) {
+        Runnable decorated = CircuitBreaker.decorateRunnable(resolveCircuitBreaker(op), runnable);
         decorated.run();
+    }
+
+    private CircuitBreaker resolveCircuitBreaker(String op) {
+        if (op == null || op.isBlank()) return feedRedisSessionCircuitBreaker;
+        if (op.startsWith("geo.")) return feedRedisGeoCircuitBreaker;
+        if (op.startsWith("metadata.")) return feedRedisMetadataCircuitBreaker;
+        if (op.startsWith("interest.")) return feedRedisInterestCircuitBreaker;
+        if (op.startsWith("session.")) return feedRedisSessionCircuitBreaker;
+        return feedRedisSessionCircuitBreaker;
     }
 }

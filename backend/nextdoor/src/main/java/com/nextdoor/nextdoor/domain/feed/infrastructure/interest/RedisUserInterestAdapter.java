@@ -20,7 +20,7 @@ public class RedisUserInterestAdapter implements UserInterestPort {
 
     @Override
     public Map<Category, Long> getUserInterests(Long memberId) {
-        return redis.failFast("userInterest.get", () -> {
+        return redis.failFast("interest.get", () -> {
             String key = "user:" + memberId + ":interest";
 
             Map<Object, Object> entries = redisTemplate.opsForHash().entries(key);

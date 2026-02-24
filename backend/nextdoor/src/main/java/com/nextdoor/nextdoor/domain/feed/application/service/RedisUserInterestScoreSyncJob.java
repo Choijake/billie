@@ -1,8 +1,5 @@
 package com.nextdoor.nextdoor.domain.feed.application.service;
 
-import com.nextdoor.nextdoor.domain.feed.domain.UserInterestScore;
-import com.nextdoor.nextdoor.domain.feed.infrastructure.persistence.UserInterestScoreRepository;
-import com.nextdoor.nextdoor.domain.post.domain.Category;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
@@ -10,7 +7,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +38,7 @@ import java.util.concurrent.Semaphore;
 public class RedisUserInterestScoreSyncJob {
 
     private final RedisTemplate<String, Object> dataRedisTemplate;
-    private final UserInterestScoreRepository scoreRepository;
+    private final UserInterestScoreSyncTxService syncTxService;
     private final Executor virtualThreadExecutor; // Virtual Thread Executor 주입
 
     /**
@@ -160,7 +156,7 @@ public class RedisUserInterestScoreSyncJob {
             // Semaphore 획득 (DB 보호)
             dbSemaphore.acquire();
             try {
-                syncScoresToDB(memberId, scores);
+                syncTxService.syncScores(memberId, scores);
             } finally {
                 // 반드시 release (finally 블록)
                 dbSemaphore.release();
@@ -171,43 +167,6 @@ public class RedisUserInterestScoreSyncJob {
             log.error("[Thread Interrupted] memberId 처리 중단: {}", key);
         } catch (Exception e) {
             log.error("[Process Failed] 키 처리 실패: {}", key, e);
-        }
-    }
-
-    /**
-     * DB UPSERT 로직
-     *
-     * [Transactional 전략]
-     * - 각 사용자마다 독립적인 트랜잭션
-     * - 한 사용자 실패해도 다른 사용자 영향 없음
-     */
-    @Transactional
-    protected void syncScoresToDB(Long memberId, Map<Object, Object> scores) {
-        for (Map.Entry<Object, Object> entry : scores.entrySet()) {
-            try {
-                String categoryName = (String) entry.getKey();
-                Long score = ((Number) entry.getValue()).longValue();
-
-                Category category = Category.valueOf(categoryName);
-
-                // UPSERT: 기존 데이터 있으면 업데이트, 없으면 생성
-                UserInterestScore entity = scoreRepository
-                        .findByMemberIdAndCategory(memberId, category)
-                        .orElse(UserInterestScore.builder()
-                                .memberId(memberId)
-                                .category(category)
-                                .score(0L)
-                                .build());
-
-                entity.updateScore(score);
-                scoreRepository.save(entity);
-
-                log.debug("[DB Synced] memberId={}, category={}, score={}",
-                        memberId, category, score);
-
-            } catch (Exception e) {
-                log.error("[UPSERT Failed] memberId={}, entry={}", memberId, entry, e);
-            }
         }
     }
 

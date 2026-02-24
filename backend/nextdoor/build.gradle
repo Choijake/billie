@@ -93,6 +93,7 @@ dependencies {
 	implementation 'org.glassfish:jakarta.json:2.0.1'
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'com.github.ben-manes.caffeine:caffeine'
 	implementation 'io.micrometer:micrometer-core'
 	implementation 'io.micrometer:micrometer-tracing-bridge-brave'
 	implementation 'io.zipkin.reporter2:zipkin-reporter-brave'

@@ -4,17 +4,21 @@ import com.nextdoor.nextdoor.domain.feed.application.FeedConfig;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.FeedItemDto;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostMetadata;
 import com.nextdoor.nextdoor.domain.feed.domain.GeoPoint;
+import com.nextdoor.nextdoor.domain.feed.infrastructure.exception.InfraException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -31,10 +35,16 @@ class GetHomeFeedServiceIntegrationTest {
     FeedPageComposer pageComposer;
 
     @Mock
+    FeedStaleCache staleCache;
+
+    @Mock
     EsFallbackFeedService esFallback;
 
     @Mock
     FeedConfig feedConfig;
+
+    @Spy
+    BestEffortExecutor bestEffortExecutor = new BestEffortExecutor();
 
     @InjectMocks
     GetHomeFeedService getHomeFeedService;
@@ -63,7 +73,7 @@ class GetHomeFeedServiceIntegrationTest {
         when(metadataService.getPostMetadata(windowIds)).thenReturn(metadataMap);
 
         // 3) 페이지 구성 결과를 직접 지정
-        FeedItemDto item = mock(FeedItemDto.class); // 실제 DTO 필드는 중요 X
+        FeedItemDto item = fixtureItem("live-item");
         List<FeedItemDto> items = List.of(item);
         List<Long> missingIds = List.of(200L);
 
@@ -75,8 +85,10 @@ class GetHomeFeedServiceIntegrationTest {
 
         // then
         // 1) 반환된 피드는 composer가 만든 items와 동일해야 함
-        assertThat(actual).hasSize(1);
-        assertThat(actual.get(0)).isSameAs(item);
+        assertSoftly(softly -> {
+            softly.assertThat(actual).hasSize(1);
+            softly.assertThat(actual.get(0)).isSameAs(item);
+        });
 
         // 2) missingIds는 세션에서 prune 대상이 되어야 함
         @SuppressWarnings("unchecked")
@@ -85,7 +97,73 @@ class GetHomeFeedServiceIntegrationTest {
         verify(sessionService).pruneFromSession(eq(memberId), missingCaptor.capture());
         assertThat(missingCaptor.getValue()).containsExactly(200L);
 
+        verify(staleCache).putFromPrimary(memberId, lat, lon, page, pageSize, items);
+
         // 3) 예외가 없으므로 ES fallback은 호출되지 않아야 정상
         verify(esFallback, never()).getHomeFeed(anyDouble(), anyDouble(), anyInt(), anyInt());
+    }
+
+    @Test
+    void 인프라_예외시_stale캐시_hit이면_ES폴백_호출없이_stale를_반환한다() {
+        // given
+        Long memberId = 7L;
+        Double lat = 37.5;
+        Double lon = 127.03;
+        int page = 0;
+        int pageSize = 10;
+
+        when(feedConfig.pageSize()).thenReturn(pageSize);
+        when(feedConfig.backfillExtraWindow()).thenReturn(0);
+        when(sessionService.getIdsForWindow(eq(memberId), anyLong(), anyInt(), any(GeoPoint.class)))
+                .thenThrow(new InfraException("redis failure"));
+
+        List<FeedItemDto> staleItems = fixtureItems(2);
+        when(staleCache.get(memberId, lat, lon, page, pageSize)).thenReturn(Optional.of(staleItems));
+
+        // when
+        List<FeedItemDto> actual = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+
+        // then
+        assertThat(actual).containsExactlyElementsOf(staleItems);
+        verify(esFallback, never()).getHomeFeed(anyDouble(), anyDouble(), anyInt(), anyInt());
+        verify(staleCache, never()).putFromFallback(anyLong(), anyDouble(), anyDouble(), anyInt(), anyInt(), anyList());
+    }
+
+    @Test
+    void 인프라_예외시_stale캐시_miss면_ES폴백_결과를_반환하고_stale에_저장한다() {
+        // given
+        Long memberId = 9L;
+        Double lat = 37.51;
+        Double lon = 127.04;
+        int page = 1;
+        int pageSize = 10;
+
+        when(feedConfig.pageSize()).thenReturn(pageSize);
+        when(feedConfig.backfillExtraWindow()).thenReturn(0);
+        when(sessionService.getIdsForWindow(eq(memberId), anyLong(), anyInt(), any(GeoPoint.class)))
+                .thenThrow(new InfraException("redis failure"));
+        when(staleCache.get(memberId, lat, lon, page, pageSize)).thenReturn(Optional.empty());
+
+        List<FeedItemDto> fallbackItems = fixtureItems(3);
+        when(esFallback.getHomeFeed(lat, lon, page, pageSize)).thenReturn(fallbackItems);
+
+        // when
+        List<FeedItemDto> actual = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+
+        // then
+        assertThat(actual).containsExactlyElementsOf(fallbackItems);
+        verify(esFallback).getHomeFeed(lat, lon, page, pageSize);
+        verify(staleCache).putFromFallback(memberId, lat, lon, page, pageSize, fallbackItems);
+    }
+
+    private FeedItemDto fixtureItem(String marker) {
+        FeedItemDto item = mock(FeedItemDto.class, marker);
+        return item;
+    }
+
+    private List<FeedItemDto> fixtureItems(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(i -> fixtureItem("item-" + i))
+                .toList();
     }
 }

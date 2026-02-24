@@ -18,8 +18,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class RedisFeedSessionStoreTtlTest {
 
     @Container
@@ -40,9 +41,7 @@ class RedisFeedSessionStoreTtlTest {
         redisTemplate.setConnectionFactory(cf);
         redisTemplate.afterPropertiesSet();
 
-        CircuitBreaker cb = CircuitBreaker.ofDefaults("feedRedis");
-        RedisCallExecutor callExecutor = new RedisCallExecutor(cb);
-        RedisExecution redisExecution = new RedisExecution(callExecutor);
+        RedisExecution redisExecution = new RedisExecution(createRedisCallExecutor());
 
         // 고정된 세션 ID를 사용해 결정적인 dataKey 생성
         SessionIdGenerator idGenerator = new SessionIdGenerator() {
@@ -61,10 +60,11 @@ class RedisFeedSessionStoreTtlTest {
 
     @Test
     void touchSession_shouldIncreasePTTL_forPointerAndDataKey() throws Exception {
+        // given
         Long memberId = 1L;
         Duration ttl = Duration.ofSeconds(5);
 
-        // 1) 세션 저장
+        // when: 세션 저장
         sessionStore.saveSession(memberId, List.of(1L, 2L, 3L, 4L, 5L), ttl);
 
         String pointerKey = keyFactory.pointerKey(memberId);
@@ -72,12 +72,14 @@ class RedisFeedSessionStoreTtlTest {
 
         assertThat(dataKey).isNotBlank();
 
-        // 2) 최초 TTL 확인
+        // then: 최초 TTL 확인
         Long pttl1Ptr = redisTemplate.getExpire(pointerKey, TimeUnit.MILLISECONDS);
         Long pttl1Data = redisTemplate.getExpire(dataKey, TimeUnit.MILLISECONDS);
 
-        assertThat(pttl1Ptr).isGreaterThan(0);
-        assertThat(pttl1Data).isGreaterThan(0);
+        assertSoftly(softly -> {
+            softly.assertThat(pttl1Ptr).isGreaterThan(0);
+            softly.assertThat(pttl1Data).isGreaterThan(0);
+        });
 
         // 3) 시간 경과로 TTL 감소
         Thread.sleep(1500);
@@ -85,8 +87,10 @@ class RedisFeedSessionStoreTtlTest {
         Long pttl2Ptr = redisTemplate.getExpire(pointerKey, TimeUnit.MILLISECONDS);
         Long pttl2Data = redisTemplate.getExpire(dataKey, TimeUnit.MILLISECONDS);
 
-        assertThat(pttl2Ptr).isLessThan(pttl1Ptr);
-        assertThat(pttl2Data).isLessThan(pttl1Data);
+        assertSoftly(softly -> {
+            softly.assertThat(pttl2Ptr).isLessThan(pttl1Ptr);
+            softly.assertThat(pttl2Data).isLessThan(pttl1Data);
+        });
 
         // 4) touch -> TTL 슬라이딩 연장
         sessionStore.touchSession(memberId, ttl);
@@ -95,7 +99,17 @@ class RedisFeedSessionStoreTtlTest {
         Long pttl3Data = redisTemplate.getExpire(dataKey, TimeUnit.MILLISECONDS);
 
         // touch 이후 남은 TTL이 증가해야 함
-        assertThat(pttl3Ptr).isGreaterThan(pttl2Ptr);
-        assertThat(pttl3Data).isGreaterThan(pttl2Data);
+        assertSoftly(softly -> {
+            softly.assertThat(pttl3Ptr).isGreaterThan(pttl2Ptr);
+            softly.assertThat(pttl3Data).isGreaterThan(pttl2Data);
+        });
+    }
+
+    private RedisCallExecutor createRedisCallExecutor() {
+        CircuitBreaker geo = CircuitBreaker.ofDefaults("feedRedisGeo");
+        CircuitBreaker session = CircuitBreaker.ofDefaults("feedRedisSession");
+        CircuitBreaker metadata = CircuitBreaker.ofDefaults("feedRedisMetadata");
+        CircuitBreaker interest = CircuitBreaker.ofDefaults("feedRedisInterest");
+        return new RedisCallExecutor(geo, session, metadata, interest);
     }
 }

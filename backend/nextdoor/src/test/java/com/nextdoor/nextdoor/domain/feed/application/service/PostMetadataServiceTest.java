@@ -36,12 +36,13 @@ class PostMetadataServiceTest {
     FeedConfig feedConfig;
 
     ObjectMapper objectMapper = new ObjectMapper();
+    BestEffortExecutor bestEffortExecutor = new BestEffortExecutor();
 
     PostMetadataService service;
 
     @BeforeEach
     void setUp() {
-        service = new PostMetadataService(cachePort, readPort, objectMapper, feedConfig);
+        service = new PostMetadataService(cachePort, readPort, objectMapper, feedConfig, bestEffortExecutor);
     }
 
     @Test

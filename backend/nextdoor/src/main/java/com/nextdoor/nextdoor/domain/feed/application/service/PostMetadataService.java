@@ -22,6 +22,7 @@ public class PostMetadataService {
     private final PostMetadataReadPort readPort;
     private final ObjectMapper objectMapper;
     private final FeedConfig feedConfig;
+    private final BestEffortExecutor bestEffortExecutor;
 
     public Map<Long, PostMetadata> getPostMetadata(List<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
@@ -35,10 +36,10 @@ public class PostMetadataService {
 
     public void markDeleted(Long postId) {
         if (postId == null) return;
-        try {
-            cachePort.markDeleted(List.of(metaKey(postId)), TOMBSTONE, feedConfig.deletedTtl());
-        } catch (InfraException ignored) {
-        }
+        bestEffortExecutor.run(
+                "feed.metadata.markDeleted",
+                () -> cachePort.markDeleted(List.of(metaKey(postId)), TOMBSTONE, feedConfig.deletedTtl())
+        );
     }
 
     private Map<Long, PostMetadata> loadWithCacheFirst(List<Long> postIds) {
@@ -90,14 +91,18 @@ public class PostMetadataService {
             }
         }
 
-        try {
-            if (!toCache.isEmpty()) {
-                cachePort.setAllRaw(toCache, feedConfig.metadataTtl());
-            }
-            if (!deletedKeys.isEmpty()) {
-                cachePort.markDeleted(deletedKeys, TOMBSTONE, feedConfig.deletedTtl());
-            }
-        } catch (InfraException ignored) {}
+        if (!toCache.isEmpty()) {
+            bestEffortExecutor.run(
+                    "feed.metadata.cache.setAllRaw",
+                    () -> cachePort.setAllRaw(toCache, feedConfig.metadataTtl())
+            );
+        }
+        if (!deletedKeys.isEmpty()) {
+            bestEffortExecutor.run(
+                    "feed.metadata.cache.markDeleted",
+                    () -> cachePort.markDeleted(deletedKeys, TOMBSTONE, feedConfig.deletedTtl())
+            );
+        }
 
         return hit;
     }

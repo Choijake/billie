@@ -37,11 +37,11 @@ public class RedisCallExecutor {
     }
 
     private CircuitBreaker resolveCircuitBreaker(String op) {
-        if (op == null || op.isBlank()) return feedRedisSessionCircuitBreaker;
-        if (op.startsWith("geo.")) return feedRedisGeoCircuitBreaker;
-        if (op.startsWith("metadata.")) return feedRedisMetadataCircuitBreaker;
-        if (op.startsWith("interest.")) return feedRedisInterestCircuitBreaker;
-        if (op.startsWith("session.")) return feedRedisSessionCircuitBreaker;
-        return feedRedisSessionCircuitBreaker;
+        return switch (RedisOpType.fromOp(op)) {
+            case GEO -> feedRedisGeoCircuitBreaker;
+            case METADATA -> feedRedisMetadataCircuitBreaker;
+            case INTEREST -> feedRedisInterestCircuitBreaker;
+            case SESSION -> feedRedisSessionCircuitBreaker;
+        };
     }
 }

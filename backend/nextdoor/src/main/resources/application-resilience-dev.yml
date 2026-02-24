@@ -82,3 +82,11 @@ resilience4j:
         limitForPeriod: 120
         limitRefreshPeriod: 1s
         timeoutDuration: 0ms
+
+feed:
+  stale-cache:
+    enabled: true
+    ttl-seconds: 45
+    max-entries: 20000
+    geo-round-decimals: 3
+    cache-max-page: 3

@@ -23,7 +23,7 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
 
     @Override
     public boolean hasValidSession(Long memberId) {
-        return redis.failFast("hasValidSession", () -> {
+        return redis.failFast("session.hasValidSession", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
             if (!StringUtils.hasText(dataKey)) return false;
@@ -35,7 +35,7 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     public void saveSession(Long memberId, List<Long> postIds, Duration ttl) {
         if (postIds == null || postIds.isEmpty()) return;
 
-        redis.failFastRun("saveSession", () -> {
+        redis.failFastRun("session.saveSession", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = keyFactory.dataKey(memberId);
 
@@ -64,7 +64,7 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
 
     @Override
     public void touchSession(Long memberId, Duration ttl) {
-        redis.failFastRun("touchSession", () -> {
+        redis.failFastRun("session.touchSession", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
             if (!StringUtils.hasText(dataKey)) return;
@@ -79,7 +79,7 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
 
     @Override
     public List<Long> getSessionRange(Long memberId, long start, long endInclusive) {
-        return redis.failFast("getSessionRange", () -> {
+        return redis.failFast("session.getSessionRange", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
             if (!StringUtils.hasText(dataKey)) return Collections.emptyList();
@@ -95,7 +95,7 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     public void removeFromSession(Long memberId, Collection<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return;
 
-        redis.failFastRun("removeFromSession", () -> {
+        redis.failFastRun("session.removeFromSession", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
             if (!StringUtils.hasText(dataKey)) return;

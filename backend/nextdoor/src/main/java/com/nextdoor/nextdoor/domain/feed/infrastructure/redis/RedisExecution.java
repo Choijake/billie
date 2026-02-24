@@ -14,7 +14,7 @@ public class RedisExecution {
 
     public <T> T failFast(String op, Supplier<T> supplier) {
         try {
-            return executor.call(supplier);
+            return executor.call(op, supplier);
         } catch (Exception e) {
             throw new RedisInfraException("[Redis Fail] op=" + op, e);
         }
@@ -22,7 +22,7 @@ public class RedisExecution {
 
     public void failFastRun(String op, Runnable runnable) {
         try {
-            executor.run(runnable);
+            executor.run(op, runnable);
         } catch (Exception e) {
             throw new RedisInfraException("[Redis Fail] op=" + op, e);
         }

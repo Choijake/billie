@@ -29,7 +29,7 @@ public class RedisFeedGeoIndexAdapter implements FeedGeoIndexPort {
 
     @Override
     public List<Long> findNearbyPostIds(GeoPoint center, double radiusKm, int globalLimit) {
-        return redis.failFast("findNearbyPostIds", () -> {
+        return redis.failFast("geo.findNearbyPostIds", () -> {
             Point redisCenter = new Point(center.lon(), center.lat());
             Distance radius = new Distance(radiusKm, Metrics.KILOMETERS);
             Circle circle = new Circle(redisCenter, radius);
@@ -66,7 +66,7 @@ public class RedisFeedGeoIndexAdapter implements FeedGeoIndexPort {
 
     @Override
     public void addGeoLocation(Long postId, GeoPoint point) {
-        redis.failFastRun("addGeoLocation", () -> {
+        redis.failFastRun("geo.addGeoLocation", () -> {
             String geoKey = geohashKey(point.lat(), point.lon());
             redisTemplate.opsForGeo().add(geoKey, new Point(point.lon(), point.lat()), String.valueOf(postId));
             redisTemplate.opsForValue().set(GEO_POST_MAP_PREFIX + postId, geoKey, GEO_POST_MAP_TTL);
@@ -75,7 +75,7 @@ public class RedisFeedGeoIndexAdapter implements FeedGeoIndexPort {
 
     @Override
     public void removeGeoLocation(Long postId) {
-        redis.failFastRun("removeGeoLocation", () -> {
+        redis.failFastRun("geo.removeGeoLocation", () -> {
             String mapKey = GEO_POST_MAP_PREFIX + postId;
             String geoKey = redisTemplate.opsForValue().get(mapKey);
             if (geoKey == null || geoKey.isBlank()) return;

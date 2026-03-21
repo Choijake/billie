@@ -1,8 +1,8 @@
 package com.nextdoor.nextdoor.domain.post.controller;
 
 import com.nextdoor.nextdoor.domain.post.controller.dto.PostSearchResponseDto;
-import com.nextdoor.nextdoor.domain.post.search.KeywordSuggestionService;
-import com.nextdoor.nextdoor.domain.post.search.PostSearchService;
+import com.nextdoor.nextdoor.domain.search.KeywordSuggestionService;
+import com.nextdoor.nextdoor.domain.search.PostSearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;

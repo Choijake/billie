@@ -1,6 +1,6 @@
 package com.nextdoor.nextdoor.domain.post.controller.dto;
 
-import com.nextdoor.nextdoor.domain.post.search.PostDocument;
+import com.nextdoor.nextdoor.domain.search.PostDocument;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.document;
 
 import lombok.*;
 import org.springframework.data.annotation.Id;

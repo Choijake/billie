@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.bulk;
 
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;

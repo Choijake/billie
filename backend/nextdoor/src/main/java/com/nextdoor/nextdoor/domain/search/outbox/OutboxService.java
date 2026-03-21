@@ -23,7 +23,8 @@ public class OutboxService {
         for (OutboxEventDto e : batch) {
             Timer.Sample t = Timer.start(meterRegistry);
             try {
-                if ("DELETE".equals(e.getEventType())) {
+                OutboxEventType type = OutboxEventType.from(e.getEventType());
+                if (type == OutboxEventType.DELETE) {
                     sqsPublisher.sendDelete(e.getPayload()).join();
                     //성공건만 리스트에 담음
                     ok.add(e.getId());

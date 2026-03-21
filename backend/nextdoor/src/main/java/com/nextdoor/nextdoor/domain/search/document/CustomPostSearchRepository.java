@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.document;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

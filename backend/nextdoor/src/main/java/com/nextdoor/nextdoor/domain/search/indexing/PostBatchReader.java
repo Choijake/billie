@@ -1,6 +1,7 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.indexing;
 
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
 import com.nextdoor.nextdoor.domain.search.dto.PostBatchResult;
 import com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto;
 import lombok.RequiredArgsConstructor;
@@ -18,12 +19,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PostBatchReader {
 
-    private static final int BATCH_SIZE = 1000;
     private final PostRepository postRepository;
+    private final SearchProperties props;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public PostBatchResult findNextBatch(long lastId, LocalDateTime cutOff) {
-        Pageable pageRequest = PageRequest.of(0, BATCH_SIZE);
+        Pageable pageRequest = PageRequest.of(0, props.getReindex().getBatchSize());
         List<Long> postIds = postRepository.findPostIdsAfterByCutoff(lastId, cutOff, pageRequest);
 
         if (postIds.isEmpty()) {

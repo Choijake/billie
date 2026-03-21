@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.document;
 
 import com.nextdoor.nextdoor.domain.post.controller.dto.PostSearchResponseDto;
 import com.nextdoor.nextdoor.domain.post.exception.PostSearchException;

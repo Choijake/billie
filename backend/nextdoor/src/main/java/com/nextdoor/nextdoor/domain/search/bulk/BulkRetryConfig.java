@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.bulk;
 
 import java.time.Duration;
 

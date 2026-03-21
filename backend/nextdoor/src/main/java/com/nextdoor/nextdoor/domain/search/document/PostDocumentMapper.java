@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.document;
 
 import com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto;
 import org.springframework.stereotype.Component;

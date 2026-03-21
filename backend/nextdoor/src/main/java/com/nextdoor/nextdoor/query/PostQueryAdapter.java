@@ -3,15 +3,14 @@ package com.nextdoor.nextdoor.query;
 import com.nextdoor.nextdoor.common.Adapter;
 import com.nextdoor.nextdoor.domain.member.domain.model.QMember;
 import com.nextdoor.nextdoor.domain.post.domain.Post;
-import com.nextdoor.nextdoor.domain.post.domain.PostLikeCount;
 import com.nextdoor.nextdoor.domain.post.domain.QPost;
 import com.nextdoor.nextdoor.domain.post.domain.QPostLike;
 import com.nextdoor.nextdoor.domain.post.domain.QPostLikeCount;
 import com.nextdoor.nextdoor.domain.post.domain.QProductImage;
 import com.nextdoor.nextdoor.domain.post.exception.NoSuchPostException;
 import com.nextdoor.nextdoor.domain.post.port.PostQueryPort;
-import com.nextdoor.nextdoor.domain.post.service.dto.PostDetailResult;
 import com.nextdoor.nextdoor.domain.post.service.dto.LocationDto;
+import com.nextdoor.nextdoor.domain.post.service.dto.PostDetailResult;
 import com.nextdoor.nextdoor.domain.post.service.dto.SearchPostCommand;
 import com.nextdoor.nextdoor.domain.post.service.dto.SearchPostResult;
 import com.querydsl.core.types.Order;
@@ -43,89 +42,38 @@ public class PostQueryAdapter implements PostQueryPort {
 
     @Override
     public Page<SearchPostResult> searchPostsByMemberAddress(SearchPostCommand command) {
-        Long userId = command.getUserId();
         String userAddress = queryFactory
                 .select(member.address)
                 .from(member)
-                .where(member.id.eq(userId))
+                .where(member.id.eq(command.getUserId()))
                 .fetchOne();
 
-        JPAQuery<SearchPostResult> query = queryFactory
-                .select(Projections.constructor(
-                        SearchPostResult.class,
-                        post.id,
-                        post.title,
-                        queryFactory
-                                .select(productImage.imageUrl.min())
-                                .from(productImage)
-                                .where(productImage.post.id.eq(post.id)),
-                        post.rentalFee,
-                        post.deposit,
-                        postLikeCount.likeCount.intValue().coalesce(0),
-                        Expressions.constant(0)
-                ))
-                .from(post)
-                .join(member).on(post.authorId.eq(member.id))
-                .leftJoin(postLikeCount).on(postLikeCount.postId.eq(post.id))
-                .groupBy(post.id);
+        JPAQuery<SearchPostResult> query = basePostListQuery();
+        query.join(member).on(post.authorId.eq(member.id));
 
         if (userAddress != null) {
-            query = query.where(post.address.eq(userAddress));
+            query.where(post.address.eq(userAddress));
         }
 
-        long total = query.fetchCount();
-
-        Pageable pageable = command.getPageable();
-        List<SearchPostResult> results = query
-                .offset(pageable.getOffset())
-                .limit(pageable.getPageSize())
-                .orderBy(getOrderSpecifier(command.getPageable().getSort()))
-                .fetch();
-
-        return new PageImpl<>(results, pageable, total);
+        return paginate(query, command.getPageable(), withSort(command.getPageable().getSort()));
     }
 
     @Override
     public Page<SearchPostResult> searchPostsLikedByMember(SearchPostCommand command) {
-        Long memberId = command.getUserId();
+        JPAQuery<SearchPostResult> query = basePostListQuery()
+                .join(postLike).on(postLike.post.eq(post).and(postLike.memberId.eq(command.getUserId())));
 
-        JPAQuery<SearchPostResult> query = queryFactory
-                .select(Projections.constructor(
-                        SearchPostResult.class,
-                        post.id,
-                        post.title,
-                        queryFactory
-                                .select(productImage.imageUrl.min())
-                                .from(productImage)
-                                .where(productImage.post.id.eq(post.id)),
-                        post.rentalFee,
-                        post.deposit,
-                        postLikeCount.likeCount.intValue().coalesce(0),
-                        Expressions.constant(0)
-                ))
-                .from(post)
-                .join(postLike).on(postLike.post.eq(post).and(postLike.memberId.eq(memberId)))
-                .leftJoin(postLikeCount).on(postLikeCount.postId.eq(post.id))
-                .groupBy(post.id);
-
-        long total = query.fetchCount();
-
-        Pageable pageable = command.getPageable();
-        List<SearchPostResult> results = query
-                .offset(pageable.getOffset())
-                .limit(pageable.getPageSize())
-                .fetch();
-
-        return new PageImpl<>(results, pageable, total);
+        return paginate(query, command.getPageable(), new OrderSpecifier[0]);
     }
 
+    @Override
     public PostDetailResult getPostDetail(Long postId) {
         Post postEntity = queryFactory
                 .selectFrom(post)
                 .where(post.id.eq(postId))
                 .fetchOne();
 
-        if(postEntity == null){
+        if (postEntity == null) {
             throw new NoSuchPostException("ID가 " + postId + "인 게시물이 존재하지 않습니다.");
         }
 
@@ -141,9 +89,9 @@ public class PostQueryAdapter implements PostQueryPort {
                 .where(productImage.post.id.eq(postId))
                 .fetch();
 
-        LocationDto locationDto = null;
+        LocationDto location = null;
         if (postEntity.getLatitude() != null && postEntity.getLongitude() != null) {
-            locationDto = new LocationDto(postEntity.getLatitude(), postEntity.getLongitude());
+            location = new LocationDto(postEntity.getLatitude(), postEntity.getLongitude());
         }
 
         Integer likeCount = queryFactory
@@ -158,7 +106,7 @@ public class PostQueryAdapter implements PostQueryPort {
                 .rentalFee(Math.toIntExact(postEntity.getRentalFee()))
                 .deposit(Math.toIntExact(postEntity.getDeposit()))
                 .address(postEntity.getAddress())
-                .location(locationDto)
+                .location(location)
                 .productImages(productImages)
                 .category(postEntity.getCategory().toString())
                 .authorId(postEntity.getAuthorId())
@@ -167,17 +115,56 @@ public class PostQueryAdapter implements PostQueryPort {
                 .build();
     }
 
-    private OrderSpecifier<?>[] getOrderSpecifier(Sort sort) {
-        List<OrderSpecifier<?>> orderSpecifiers = new ArrayList<>();
+    // ──── private helpers ────────────────────────────────────────────────────
 
-        sort.stream().forEach(order -> {
+    /**
+     * 목록 조회에 공통으로 사용하는 프로젝션 쿼리.
+     * 이전에 searchPostsByMemberAddress / searchPostsLikedByMember 에 중복 존재하던 코드를 추출. (DRY)
+     */
+    private JPAQuery<SearchPostResult> basePostListQuery() {
+        return queryFactory
+                .select(Projections.constructor(
+                        SearchPostResult.class,
+                        post.id,
+                        post.title,
+                        thumbnailSubquery(),
+                        post.rentalFee,
+                        post.deposit,
+                        postLikeCount.likeCount.intValue().coalesce(0),
+                        Expressions.constant(0)
+                ))
+                .from(post)
+                .leftJoin(postLikeCount).on(postLikeCount.postId.eq(post.id))
+                .groupBy(post.id);
+    }
+
+    private com.querydsl.core.types.Expression<String> thumbnailSubquery() {
+        return queryFactory
+                .select(productImage.imageUrl.min())
+                .from(productImage)
+                .where(productImage.post.id.eq(post.id));
+    }
+
+    private Page<SearchPostResult> paginate(JPAQuery<SearchPostResult> query,
+                                             Pageable pageable,
+                                             OrderSpecifier<?>[] orders) {
+        long total = query.fetchCount();
+        List<SearchPostResult> results = query
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .orderBy(orders)
+                .fetch();
+        return new PageImpl<>(results, pageable, total);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private OrderSpecifier<?>[] withSort(Sort sort) {
+        List<OrderSpecifier<?>> specs = new ArrayList<>();
+        sort.forEach(order -> {
             Order direction = order.isAscending() ? Order.ASC : Order.DESC;
-            String property = order.getProperty();
-
-            PathBuilder<Post> pathBuilder = new PathBuilder<>(Post.class, "post");
-            orderSpecifiers.add(new OrderSpecifier(direction, pathBuilder.get(property)));
+            PathBuilder<Post> path = new PathBuilder<>(Post.class, "post");
+            specs.add(new OrderSpecifier(direction, path.get(order.getProperty())));
         });
-
-        return orderSpecifiers.toArray(new OrderSpecifier[0]);
+        return specs.toArray(new OrderSpecifier[0]);
     }
 }

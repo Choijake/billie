@@ -22,7 +22,7 @@ import org.springframework.data.elasticsearch.repository.config.EnableElasticsea
 @Configuration
 @Getter
 @ConditionalOnProperty(name = "custom.elasticsearch.enabled", havingValue = "true")
-@EnableElasticsearchRepositories(basePackages = "com.nextdoor.nextdoor.domain.post.search")
+@EnableElasticsearchRepositories(basePackages = "com.nextdoor.nextdoor.domain.search")
 public class ElasticsearchConfig extends ElasticsearchConfiguration {
 
     @Value("${spring.elasticsearch.uris}")

@@ -2,7 +2,7 @@ package com.nextdoor.nextdoor.query;
 
 import com.nextdoor.nextdoor.domain.feed.application.port.FeedSearchPort;
 import com.nextdoor.nextdoor.domain.feed.application.service.dto.PostSummary;
-import com.nextdoor.nextdoor.domain.post.search.PostDocument;
+import com.nextdoor.nextdoor.domain.search.PostDocument;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;

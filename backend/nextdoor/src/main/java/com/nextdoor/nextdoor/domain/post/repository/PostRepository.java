@@ -1,7 +1,7 @@
 package com.nextdoor.nextdoor.domain.post.repository;
 
 import com.nextdoor.nextdoor.domain.post.domain.Post;
-import com.nextdoor.nextdoor.domain.post.search.dto.PostWithLikeCountDto;
+import com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -34,7 +34,7 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                                         Pageable pageable);
 
 
-    @Query("SELECT new com.nextdoor.nextdoor.domain.post.search.dto.PostWithLikeCountDto(" +
+    @Query("SELECT new com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto(" +
             "p.id, p.title, p.content, p.rentalFee, p.deposit, " +
             "p.address, p.latitude, p.longitude, p.category, " +
             "p.createdAt, p.updatedAt, plc.likeCount) " +
@@ -44,7 +44,7 @@ public interface PostRepository extends JpaRepository<Post, Long> {
             "ORDER BY p.id ASC")
     List<PostWithLikeCountDto> findPostsWithLikeCountByIds(@Param("ids") List<Long> ids);
 
-    @Query("SELECT new com.nextdoor.nextdoor.domain.post.search.dto.PostWithLikeCountDto(" +
+    @Query("SELECT new com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto(" +
             "p.id, p.title, p.content, p.rentalFee, p.deposit, " +
             "p.address, p.latitude, p.longitude, p.category, " +
             "p.createdAt, p.updatedAt, plc.likeCount) " +

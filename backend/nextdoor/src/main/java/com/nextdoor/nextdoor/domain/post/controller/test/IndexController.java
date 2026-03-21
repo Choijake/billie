@@ -1,6 +1,6 @@
 package com.nextdoor.nextdoor.domain.post.controller.test;
 
-import com.nextdoor.nextdoor.domain.post.search.messaging.producer.PostIndexingProducer;
+import com.nextdoor.nextdoor.domain.search.messaging.producer.PostIndexingProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;

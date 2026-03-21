@@ -1,6 +1,6 @@
 package com.nextdoor.nextdoor.domain.feed.application.service.dto;
 
-import com.nextdoor.nextdoor.domain.search.PostDocument;
+import com.nextdoor.nextdoor.domain.search.document.PostDocument;
 
 import java.time.LocalDateTime;
 

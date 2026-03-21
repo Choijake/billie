@@ -1,8 +1,8 @@
 package com.nextdoor.nextdoor.domain.search.messaging.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nextdoor.nextdoor.domain.search.ReindexOrchestrator;
-import com.nextdoor.nextdoor.domain.search.SinglePostIndexer;
+import com.nextdoor.nextdoor.domain.search.indexing.ReindexOrchestrator;
+import com.nextdoor.nextdoor.domain.search.indexing.SinglePostIndexer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;

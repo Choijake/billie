@@ -1,6 +1,8 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.lock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
+import com.nextdoor.nextdoor.domain.search.document.PostDocument;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -13,40 +15,38 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class IndexLockService {
 
-    private static final String FULL_INDEX_LOCK = "FULL_INDEX_LOCK";
-    private static final String PENDING_INDEX_QUEUE= "PENDING_INDEX_QUEUE";
-
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final SearchProperties props;
 
     public boolean acquireFullIndexLock() {
         return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(
-                FULL_INDEX_LOCK,
+                props.getLock().getFullIndexLockKey(),
                 "LOCKED",
-                2,
-                TimeUnit.HOURS
+                props.getLock().getTtlSec(),
+                TimeUnit.SECONDS
         ));
     }
 
     public void releaseFullIndexLock() {
-        redisTemplate.delete(FULL_INDEX_LOCK);
+        redisTemplate.delete(props.getLock().getFullIndexLockKey());
     }
 
     public boolean isFullIndexLocked(){
-        return redisTemplate.hasKey(FULL_INDEX_LOCK);
+        return redisTemplate.hasKey(props.getLock().getFullIndexLockKey());
     }
 
     public void addToPendingIndexQueue(PostDocument postDocument) {
         try {
             String jsonDoc = objectMapper.writeValueAsString(postDocument);
-            redisTemplate.opsForList().rightPush(PENDING_INDEX_QUEUE, jsonDoc);
+            redisTemplate.opsForList().rightPush(props.getLock().getPendingQueueKey(), jsonDoc);
         } catch (Exception e) {
             throw new RuntimeException("인덱싱 대기 큐에 등록 실패: " + e.getMessage(), e);
         }
     }
 
     public List<PostDocument> processPendingIndexQueue() {
-        List<String> jsonDocuments = redisTemplate.opsForList().range(PENDING_INDEX_QUEUE, 0, -1);
+        List<String> jsonDocuments = redisTemplate.opsForList().range(props.getLock().getPendingQueueKey(), 0, -1);
         List<PostDocument> documents = new ArrayList<>();
 
         for (String jsonDocument : jsonDocuments) {

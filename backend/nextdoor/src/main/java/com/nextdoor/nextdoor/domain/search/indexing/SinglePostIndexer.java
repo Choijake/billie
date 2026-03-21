@@ -1,14 +1,15 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.indexing;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch._types.VersionType;
 import com.nextdoor.nextdoor.domain.post.exception.PostIndexException;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
 import com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto;
-import com.nextdoor.nextdoor.domain.search.IndexLockService;
-import com.nextdoor.nextdoor.domain.search.PostDocument;
-import com.nextdoor.nextdoor.domain.search.PostDocumentMapper;
-import com.nextdoor.nextdoor.domain.search.PostSearchRepository;
+import com.nextdoor.nextdoor.domain.search.lock.IndexLockService;
+import com.nextdoor.nextdoor.domain.search.document.PostDocument;
+import com.nextdoor.nextdoor.domain.search.document.PostDocumentMapper;
+import com.nextdoor.nextdoor.domain.search.document.PostSearchRepository;
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
@@ -26,13 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class SinglePostIndexer {
 
-    private static final String INDEX_NAME = "posts";
-
     private final PostRepository postRepository;
     private final ElasticsearchAsyncClient asyncEsClient;
     private final IndexLockService indexLockService;
     private final PostSearchRepository postSearchRepository;
     private final PostDocumentMapper documentMapper;
+    private final SearchProperties props;
 
     public void indexSinglePost(Long postId) {
         PostWithLikeCountDto dto = postRepository.findDtoById(postId)
@@ -47,7 +47,7 @@ public class SinglePostIndexer {
 
         long version = documentMapper.toVersion(dto);
         asyncEsClient.index(i -> i
-                .index(INDEX_NAME)
+                .index(props.getIndexName())
                 .id(dto.getPostId().toString())
                 .version(version)
                 .versionType(VersionType.ExternalGte)

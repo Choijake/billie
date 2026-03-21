@@ -1,5 +1,6 @@
 package com.nextdoor.nextdoor.domain.search.outbox;
 
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
 import com.nextdoor.nextdoor.domain.search.outbox.event.PostDeleteEvent;
 import com.nextdoor.nextdoor.domain.search.outbox.event.PostUpsertEvent;
 import io.micrometer.core.instrument.Counter;
@@ -27,11 +28,10 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 public class SqsPublisher {
 
-    private static final int SQS_BATCH_LIMIT = 10;
-
     private final SqsAsyncClient sqsClient;
     private final Jsons jsons;
     private final MeterRegistry meterRegistry;
+    private final SearchProperties props;
 
     @Value("${sqs.queue.upsert}")
     private String upsertQueueUrl;
@@ -39,226 +39,200 @@ public class SqsPublisher {
     @Value("${sqs.queue.delete}")
     private String deleteQueueUrl;
 
-    private DistributionSummary upsertSize;
-    private DistributionSummary deleteSize;
-    private DistributionSummary upsertBatchSize;
-    private DistributionSummary deleteBatchSize;
+    /** 타입별 메트릭과 큐 URL을 묶은 컨텍스트 객체 — boolean 플래그 제거. (OCP) */
+    private record SqsTarget(
+            String queueUrl,
+            String typeTag,
+            DistributionSummary msgSize,
+            DistributionSummary batchSize,
+            Counter success,
+            Counter failed
+    ) {}
 
-    private Counter upsertSuccess;
-    private Counter upsertFailed;
-    private Counter deleteSuccess;
-    private Counter deleteFailed;
+    private SqsTarget upsertTarget;
+    private SqsTarget deleteTarget;
 
     @PostConstruct
     public void init() {
-        this.upsertSize = DistributionSummary.builder("sqs.message.bytes")
-                .description("SQS 메시지 크기").baseUnit("bytes")
-                .publishPercentileHistogram().tag("type", "UPSERT")
-                .register(meterRegistry);
-
-        this.deleteSize = DistributionSummary.builder("sqs.message.bytes")
-                .description("SQS 메시지 크기").baseUnit("bytes")
-                .publishPercentileHistogram().tag("type", "DELETE")
-                .register(meterRegistry);
-
-        this.upsertBatchSize = DistributionSummary.builder("sqs.batch.size")
-                .description("SQS 배치 크기").baseUnit("messages")
-                .publishPercentileHistogram().tag("type", "UPSERT")
-                .register(meterRegistry);
-
-        this.deleteBatchSize = DistributionSummary.builder("sqs.batch.size")
-                .description("SQS 배치 크기").baseUnit("messages")
-                .publishPercentileHistogram().tag("type", "DELETE")
-                .register(meterRegistry);
-
-        this.upsertSuccess = Counter.builder("sqs.send.success")
-                .description("SQS 전송 성공 건수").tag("type", "UPSERT")
-                .register(meterRegistry);
-
-        this.upsertFailed = Counter.builder("sqs.send.failed")
-                .description("SQS 전송 실패 건수").tag("type", "UPSERT")
-                .register(meterRegistry);
-
-        this.deleteSuccess = Counter.builder("sqs.send.success")
-                .description("SQS 전송 성공 건수").tag("type", "DELETE")
-                .register(meterRegistry);
-
-        this.deleteFailed = Counter.builder("sqs.send.failed")
-                .description("SQS 전송 실패 건수").tag("type", "DELETE")
-                .register(meterRegistry);
+        upsertTarget = buildTarget(upsertQueueUrl, "UPSERT");
+        deleteTarget = buildTarget(deleteQueueUrl, "DELETE");
     }
 
+    private SqsTarget buildTarget(String queueUrl, String typeTag) {
+        return new SqsTarget(
+                queueUrl,
+                typeTag,
+                DistributionSummary.builder("sqs.message.bytes")
+                        .description("SQS 메시지 크기").baseUnit("bytes")
+                        .publishPercentileHistogram().tag("type", typeTag)
+                        .register(meterRegistry),
+                DistributionSummary.builder("sqs.batch.size")
+                        .description("SQS 배치 크기").baseUnit("messages")
+                        .publishPercentileHistogram().tag("type", typeTag)
+                        .register(meterRegistry),
+                Counter.builder("sqs.send.success")
+                        .description("SQS 전송 성공 건수").tag("type", typeTag)
+                        .register(meterRegistry),
+                Counter.builder("sqs.send.failed")
+                        .description("SQS 전송 실패 건수").tag("type", typeTag)
+                        .register(meterRegistry)
+        );
+    }
+
+    // ──── Public API ─────────────────────────────────────────────────────────
+
     public CompletableFuture<SendMessageResponse> sendDelete(String payload) {
-        Timer.Sample t = Timer.start(meterRegistry);
-        try {
+        return sendSingle(payload, deleteTarget, () -> {
             PostDeleteEvent ev = jsons.toDelete(payload);
-            deleteSize.record(payload.getBytes(StandardCharsets.UTF_8).length);
-            SendMessageRequest req = SendMessageRequest.builder()
-                    .queueUrl(deleteQueueUrl)
+            return SendMessageRequest.builder()
+                    .queueUrl(deleteTarget.queueUrl())
                     .messageGroupId(String.valueOf(ev.getPostId()))
                     .messageDeduplicationId(dedupe(ev.getPostId(), ev.getVersion(), "DEL"))
                     .messageBody(payload)
                     .build();
-            return sqsClient.sendMessage(req)
-                    .whenComplete((resp, ex) -> {
-                        if (ex == null) deleteSuccess.increment();
-                        else deleteFailed.increment();
-                        t.stop(Timer.builder("sqs.send.single")
-                                .description("SQS 단건 전송 시간")
-                                .publishPercentileHistogram()
-                                .tag("type", "DELETE")
-                                .register(meterRegistry));
-                    });
-        } catch (Exception e) {
-            deleteFailed.increment();
-            t.stop(Timer.builder("sqs.send.single")
-                    .description("SQS 단건 전송 시간")
-                    .publishPercentileHistogram()
-                    .tag("type", "DELETE")
-                    .register(meterRegistry));
-            log.error("삭제 메시지 전송 중 오류 발생: {}", e.getMessage(), e);
-            return CompletableFuture.failedFuture(e);
-        }
+        });
     }
 
     public CompletableFuture<SendMessageResponse> sendUpsert(String payload) {
-        Timer.Sample t = Timer.start(meterRegistry);
-        try {
+        return sendSingle(payload, upsertTarget, () -> {
             PostUpsertEvent ev = jsons.toUpsert(payload);
-            upsertSize.record(payload.getBytes(StandardCharsets.UTF_8).length);
-            SendMessageRequest req = SendMessageRequest.builder()
-                    .queueUrl(upsertQueueUrl)
+            return SendMessageRequest.builder()
+                    .queueUrl(upsertTarget.queueUrl())
                     .messageGroupId(String.valueOf(ev.getPostId()))
                     .messageDeduplicationId(dedupe(ev.getPostId(), ev.getVersion(), "UPS"))
                     .messageBody(payload)
                     .build();
+        });
+    }
+
+    public CompletableFuture<Void> sendUpsertBatch(List<String> payloads) {
+        return sendBatch(payloads, upsertTarget, "UPS");
+    }
+
+    public CompletableFuture<Void> sendDeleteBatch(List<String> payloads) {
+        return sendBatch(payloads, deleteTarget, "DEL");
+    }
+
+    // ──── Private Helpers ────────────────────────────────────────────────────
+
+    private CompletableFuture<SendMessageResponse> sendSingle(
+            String payload, SqsTarget target, RequestSupplier supplier) {
+
+        Timer.Sample t = Timer.start(meterRegistry);
+        try {
+            target.msgSize().record(payload.getBytes(StandardCharsets.UTF_8).length);
+            SendMessageRequest req = supplier.get();
             return sqsClient.sendMessage(req)
                     .whenComplete((resp, ex) -> {
-                        if (ex == null) upsertSuccess.increment();
-                        else upsertFailed.increment();
-                        t.stop(Timer.builder("sqs.send.single")
-                                .description("SQS 단건 전송 시간")
-                                .publishPercentileHistogram()
-                                .tag("type", "UPSERT")
-                                .register(meterRegistry));
+                        if (ex == null) target.success().increment();
+                        else target.failed().increment();
+                        stopSingleTimer(t, target.typeTag());
                     });
         } catch (Exception e) {
-            upsertFailed.increment();
-            t.stop(Timer.builder("sqs.send.single")
-                    .description("SQS 단건 전송 시간")
-                    .publishPercentileHistogram()
-                    .tag("type", "UPSERT")
-                    .register(meterRegistry));
-            log.error("업서트 메시지 전송 중 오류 발생: {}", e.getMessage(), e);
+            target.failed().increment();
+            stopSingleTimer(t, target.typeTag());
+            log.error("{} 단건 전송 중 오류: {}", target.typeTag(), e.getMessage(), e);
             return CompletableFuture.failedFuture(e);
         }
     }
 
-    public CompletableFuture<Void> sendUpsertBatch(List<String> payloads) {
+    private CompletableFuture<Void> sendBatch(List<String> payloads, SqsTarget target, String dedupePrefix) {
         if (payloads == null || payloads.isEmpty()) return CompletableFuture.completedFuture(null);
-        upsertBatchSize.record(payloads.size());
-        payloads.forEach(p -> upsertSize.record(p.getBytes(StandardCharsets.UTF_8).length));
+        target.batchSize().record(payloads.size());
+        payloads.forEach(p -> target.msgSize().record(p.getBytes(StandardCharsets.UTF_8).length));
 
+        int batchLimit = props.getSqs().getBatchLimit();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (int i = 0; i < payloads.size(); i += SQS_BATCH_LIMIT) {
-            List<String> chunk = payloads.subList(i, Math.min(i + SQS_BATCH_LIMIT, payloads.size()));
-            futures.add(sendBatchInternal(chunk, true, 0));
+        for (int i = 0; i < payloads.size(); i += batchLimit) {
+            List<String> chunk = payloads.subList(i, Math.min(i + batchLimit, payloads.size()));
+            futures.add(sendBatchInternal(chunk, target, dedupePrefix, 0));
         }
         return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
     }
 
-    public CompletableFuture<Void> sendDeleteBatch(List<String> payloads) {
-        if (payloads == null || payloads.isEmpty()) return CompletableFuture.completedFuture(null);
-        deleteBatchSize.record(payloads.size());
-        payloads.forEach(p -> deleteSize.record(p.getBytes(StandardCharsets.UTF_8).length));
+    private CompletableFuture<Void> sendBatchInternal(
+            List<String> chunk, SqsTarget target, String dedupePrefix, int attempt) {
 
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (int i = 0; i < payloads.size(); i += SQS_BATCH_LIMIT) {
-            List<String> chunk = payloads.subList(i, Math.min(i + SQS_BATCH_LIMIT, payloads.size()));
-            futures.add(sendBatchInternal(chunk, false, 0));
-        }
-        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
-    }
-
-    private CompletableFuture<Void> sendBatchInternal(List<String> chunk, boolean upsert, int attempt) {
         Timer.Sample t = Timer.start(meterRegistry);
         List<SendMessageBatchRequestEntry> entries = new ArrayList<>(chunk.size());
 
         try {
             for (int i = 0; i < chunk.size(); i++) {
                 String payload = chunk.get(i);
-                String id = "m" + i;
-
-                String groupId;
-                String dedupId;
-                if (upsert) {
-                    PostUpsertEvent ev = jsons.toUpsert(payload);
-                    groupId = String.valueOf(ev.getPostId());
-                    dedupId = dedupe(ev.getPostId(), ev.getVersion(), "UPS");
-                } else {
-                    PostDeleteEvent ev = jsons.toDelete(payload);
-                    groupId = String.valueOf(ev.getPostId());
-                    dedupId = dedupe(ev.getPostId(), ev.getVersion(), "DEL");
-                }
-
-                SendMessageBatchRequestEntry.Builder eb = SendMessageBatchRequestEntry.builder()
-                        .id(id)
+                long postId = extractPostId(payload, dedupePrefix);
+                long version = extractVersion(payload, dedupePrefix);
+                entries.add(SendMessageBatchRequestEntry.builder()
+                        .id("m" + i)
                         .messageBody(payload)
-                        .messageGroupId(groupId)
-                        .messageDeduplicationId(dedupId);
-                entries.add(eb.build());
+                        .messageGroupId(String.valueOf(postId))
+                        .messageDeduplicationId(dedupe(postId, version, dedupePrefix))
+                        .build());
             }
 
-            String queueUrl = upsert ? upsertQueueUrl : deleteQueueUrl;
-            return sqsClient.sendMessageBatch(b -> b.queueUrl(queueUrl).entries(entries))
+            return sqsClient.sendMessageBatch(b -> b.queueUrl(target.queueUrl()).entries(entries))
                     .thenCompose(resp -> {
-                        int ok = resp.successful() == null ? 0 : resp.successful().size();
-                        int fail = resp.failed() == null ? 0 : resp.failed().size();
-                        if (upsert) {
-                            upsertSuccess.increment(ok);
-                            upsertFailed.increment(fail);
-                        } else {
-                            deleteSuccess.increment(ok);
-                            deleteFailed.increment(fail);
-                        }
+                        int ok   = resp.successful() == null ? 0 : resp.successful().size();
+                        int fail = resp.failed()     == null ? 0 : resp.failed().size();
+                        target.success().increment(ok);
+                        target.failed().increment(fail);
 
                         if (fail > 0 && attempt < 2) {
                             List<String> retryPayloads = new ArrayList<>(fail);
                             for (BatchResultErrorEntry e : resp.failed()) {
-                                int idx = Integer.parseInt(e.id().substring(1));
-                                retryPayloads.add(chunk.get(idx));
+                                retryPayloads.add(chunk.get(Integer.parseInt(e.id().substring(1))));
                             }
                             try { Thread.sleep(Duration.ofMillis(100L * (1L << attempt)).toMillis()); }
-                            catch (InterruptedException ignored) {}
-                            return sendBatchInternal(retryPayloads, upsert, attempt + 1);
+                            catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                            return sendBatchInternal(retryPayloads, target, dedupePrefix, attempt + 1);
                         }
                         return CompletableFuture.completedFuture(null);
                     })
-                    .whenComplete((r, ex) -> {
-                        t.stop(Timer.builder("sqs.send.batch")
-                                .description("SQS 배치 전송 시간")
-                                .publishPercentileHistogram()
-                                .tag("type", upsert ? "UPSERT" : "DELETE")
-                                .tag("attempt", String.valueOf(attempt))
-                                .register(meterRegistry));
-                    });
+                    .whenComplete((r, ex) -> stopBatchTimer(t, target.typeTag(), attempt));
 
         } catch (Exception e) {
-            if (upsert) upsertFailed.increment(chunk.size());
-            else deleteFailed.increment(chunk.size());
-            t.stop(Timer.builder("sqs.send.batch")
-                    .description("SQS 배치 전송 시간")
-                    .publishPercentileHistogram()
-                    .tag("type", upsert ? "UPSERT" : "DELETE")
-                    .tag("attempt", String.valueOf(attempt))
-                    .register(meterRegistry));
+            target.failed().increment(chunk.size());
+            stopBatchTimer(t, target.typeTag(), attempt);
             log.error("SQS 배치 전송 중 예외 (type={}, attempt={}, size={}): {}",
-                    upsert ? "UPSERT" : "DELETE", attempt, chunk.size(), e.getMessage(), e);
+                    target.typeTag(), attempt, chunk.size(), e.getMessage(), e);
             return CompletableFuture.failedFuture(e);
         }
     }
 
-    private String dedupe(Long id, Long v, String t) {
-        return t + ":" + id + ":" + v;
+    private long extractPostId(String payload, String prefix) throws Exception {
+        return "UPS".equals(prefix)
+                ? jsons.toUpsert(payload).getPostId()
+                : jsons.toDelete(payload).getPostId();
+    }
+
+    private long extractVersion(String payload, String prefix) throws Exception {
+        return "UPS".equals(prefix)
+                ? jsons.toUpsert(payload).getVersion()
+                : jsons.toDelete(payload).getVersion();
+    }
+
+    private void stopSingleTimer(Timer.Sample t, String typeTag) {
+        t.stop(Timer.builder("sqs.send.single")
+                .description("SQS 단건 전송 시간")
+                .publishPercentileHistogram()
+                .tag("type", typeTag)
+                .register(meterRegistry));
+    }
+
+    private void stopBatchTimer(Timer.Sample t, String typeTag, int attempt) {
+        t.stop(Timer.builder("sqs.send.batch")
+                .description("SQS 배치 전송 시간")
+                .publishPercentileHistogram()
+                .tag("type", typeTag)
+                .tag("attempt", String.valueOf(attempt))
+                .register(meterRegistry));
+    }
+
+    private String dedupe(long id, long v, String prefix) {
+        return prefix + ":" + id + ":" + v;
+    }
+
+    @FunctionalInterface
+    private interface RequestSupplier {
+        SendMessageRequest get() throws Exception;
     }
 }

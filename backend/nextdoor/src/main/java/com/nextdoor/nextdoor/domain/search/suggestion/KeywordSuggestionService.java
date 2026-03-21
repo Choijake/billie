@@ -1,5 +1,6 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.suggestion;
 
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -14,14 +15,17 @@ import java.util.Set;
 @Slf4j
 public class KeywordSuggestionService {
 
-    private final RedisTemplate<String, String> redisTemplate;
-    private static final String KEY_PREFIX = "search:keywords:";
-    private static final int MAX_SUGGESTIONS = 4;
-    private static final double INITIAL_SCORE = 1.0;
+    private static final double INITIAL_SCORE   = 1.0;
     private static final double SCORE_INCREMENT = 1.0;
 
-    public KeywordSuggestionService(@Qualifier("stringRedisTemplate") RedisTemplate<String, String> redisTemplate) {
+    private final RedisTemplate<String, String> redisTemplate;
+    private final SearchProperties props;
+
+    public KeywordSuggestionService(
+            @Qualifier("stringRedisTemplate") RedisTemplate<String, String> redisTemplate,
+            SearchProperties props) {
         this.redisTemplate = redisTemplate;
+        this.props = props;
     }
 
     public void saveSearchKeyword(String keyword) {
@@ -30,7 +34,7 @@ public class KeywordSuggestionService {
         }
 
         String normalizedKeyword = keyword.trim().toLowerCase();
-        String key = KEY_PREFIX + "all";
+        String key = props.getSuggestion().getKeyPrefix() + "all";
 
         Double currentScore = redisTemplate.opsForZSet().score(key, normalizedKeyword);
         if (currentScore == null) {
@@ -46,7 +50,7 @@ public class KeywordSuggestionService {
         }
 
         String normalizedPrefix = prefix.trim().toLowerCase();
-        String key = KEY_PREFIX + "all";
+        String key = props.getSuggestion().getKeyPrefix() + "all";
 
         Set<ZSetOperations.TypedTuple<String>> allKeywords =
                 redisTemplate.opsForZSet().reverseRangeWithScores(key, 0, -1);
@@ -58,16 +62,16 @@ public class KeywordSuggestionService {
         List<String> suggestions = allKeywords.stream()
                 .map(ZSetOperations.TypedTuple::getValue)
                 .filter(keyword -> keyword != null && keyword.startsWith(normalizedPrefix))
-                .limit(MAX_SUGGESTIONS)
+                .limit(props.getSuggestion().getMaxSuggestions())
                 .toList();
 
         return suggestions;
     }
 
     public List<String> getTopKeywords() {
-        String key = KEY_PREFIX + "all";
+        String key = props.getSuggestion().getKeyPrefix() + "all";
 
-        Set<String> topKeywords = redisTemplate.opsForZSet().reverseRange(key, 0, MAX_SUGGESTIONS - 1);
+        Set<String> topKeywords = redisTemplate.opsForZSet().reverseRange(key, 0, props.getSuggestion().getMaxSuggestions() - 1);
 
         if (topKeywords == null) {
             return new ArrayList<>();

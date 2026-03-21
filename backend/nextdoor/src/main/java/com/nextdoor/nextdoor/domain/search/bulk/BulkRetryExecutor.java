@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.bulk;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
@@ -11,21 +11,34 @@ import java.util.concurrent.TimeUnit;
 
 public class BulkRetryExecutor {
 
-    private static final int TARGET_SLICE_BYTES = 8 * 1024 * 1024;
-    private static final int MAX_SLICE_BYTES = 15 * 1024 * 1024;
+    private final int targetSliceBytes;
+    private final int maxSliceBytes;
 
     private final BulkTransport transport;
     private final ScheduledExecutorService scheduler;
     private final BulkRetryConfig cfg;
 
     public BulkRetryExecutor(ElasticsearchAsyncClient asyncEsClient) {
-        this(new EsBulkTransport(asyncEsClient), null, BulkRetryConfig.defaults());
+        this(new EsBulkTransport(asyncEsClient), null, BulkRetryConfig.defaults(),
+                8 * 1024 * 1024, 15 * 1024 * 1024);
+    }
+
+    public BulkRetryExecutor(ElasticsearchAsyncClient asyncEsClient, int targetSliceBytes, int maxSliceBytes) {
+        this(new EsBulkTransport(asyncEsClient), null, BulkRetryConfig.defaults(),
+                targetSliceBytes, maxSliceBytes);
     }
 
     public BulkRetryExecutor(BulkTransport transport, ScheduledExecutorService scheduler, BulkRetryConfig cfg) {
+        this(transport, scheduler, cfg, 8 * 1024 * 1024, 15 * 1024 * 1024);
+    }
+
+    public BulkRetryExecutor(BulkTransport transport, ScheduledExecutorService scheduler, BulkRetryConfig cfg,
+                              int targetSliceBytes, int maxSliceBytes) {
         this.transport = transport;
         this.scheduler = scheduler;
         this.cfg = (cfg == null) ? BulkRetryConfig.defaults() : cfg;
+        this.targetSliceBytes = targetSliceBytes;
+        this.maxSliceBytes = maxSliceBytes;
     }
 
     public static final class Slice {
@@ -44,14 +57,14 @@ public class BulkRetryExecutor {
         int bytes = 0;
         for (BulkOperation op : ops) {
             int sz = estimateBytes(op);
-            if (!buf.isEmpty() && (bytes + sz) > MAX_SLICE_BYTES) {
+            if (!buf.isEmpty() && (bytes + sz) > maxSliceBytes) {
                 out.add(new Slice(List.copyOf(buf), bytes));
                 buf.clear();
                 bytes = 0;
             }
             buf.add(op);
             bytes += sz;
-            if (bytes >= TARGET_SLICE_BYTES) {
+            if (bytes >= targetSliceBytes) {
                 out.add(new Slice(List.copyOf(buf), bytes));
                 buf.clear();
                 bytes = 0;

@@ -1,13 +1,21 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.indexing;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch._types.VersionType;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
 import com.nextdoor.nextdoor.domain.post.exception.PostIndexException;
 import com.nextdoor.nextdoor.domain.post.repository.PostRepository;
+import com.nextdoor.nextdoor.domain.search.bulk.BulkRetryExecutor;
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
+import com.nextdoor.nextdoor.domain.search.document.PostDocument;
+import com.nextdoor.nextdoor.domain.search.document.PostDocumentMapper;
 import com.nextdoor.nextdoor.domain.search.dto.BatchTask;
 import com.nextdoor.nextdoor.domain.search.dto.PostBatchResult;
 import com.nextdoor.nextdoor.domain.search.dto.PostWithLikeCountDto;
+import com.nextdoor.nextdoor.domain.search.lock.IndexAliasManager;
+import com.nextdoor.nextdoor.domain.search.lock.IndexLockService;
+import com.nextdoor.nextdoor.domain.search.lock.ReindexRunState;
+import com.nextdoor.nextdoor.domain.search.lock.ReindexRunStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
@@ -32,8 +40,6 @@ import java.util.concurrent.CompletableFuture;
 @RequiredArgsConstructor
 public class ReindexOrchestrator {
 
-    private static final int MAX_IN_FLIGHT = 2;
-
     private final PostRepository postRepository;
     private final ElasticsearchAsyncClient asyncEsClient;
     private final IndexLockService indexLockService;
@@ -41,6 +47,7 @@ public class ReindexOrchestrator {
     private final ReindexRunStore runStore;
     private final IndexAliasManager indexAliasManager;
     private final PostDocumentMapper documentMapper;
+    private final SearchProperties props;
 
     public void reindexAll() {
         if (!indexLockService.acquireFullIndexLock()) {
@@ -83,7 +90,8 @@ public class ReindexOrchestrator {
     }
 
     private long[] runBatchLoop(String newIndex, LocalDateTime cutoff, long lastId, long processed) {
-        List<BatchTask> inFlight = new ArrayList<>(MAX_IN_FLIGHT);
+        int maxInFlight = props.getReindex().getMaxInFlight();
+        List<BatchTask> inFlight = new ArrayList<>(maxInFlight);
 
         while (true) {
             PostBatchResult batch = postBatchReader.findNextBatch(lastId, cutoff);
@@ -94,7 +102,7 @@ public class ReindexOrchestrator {
             inFlight.add(new BatchTask(f, batch.getLastId(), batch.getPosts().size()));
             lastId = batch.getLastId();
 
-            if (inFlight.size() >= MAX_IN_FLIGHT) {
+            if (inFlight.size() >= maxInFlight) {
                 BatchTask done = inFlight.remove(0);
                 done.future().join();
                 processed += done.count();
@@ -147,7 +155,8 @@ public class ReindexOrchestrator {
     }
 
     private CompletableFuture<Void> sendBulkAsync(List<BulkOperation> ops) {
-        BulkRetryExecutor exec = new BulkRetryExecutor(asyncEsClient);
+        BulkRetryExecutor exec = new BulkRetryExecutor(asyncEsClient,
+                props.getBulk().getTargetSliceBytes(), props.getBulk().getMaxSliceBytes());
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (BulkRetryExecutor.Slice slice : exec.sliceBySize(ops)) {
             chain = chain.thenCompose(v -> exec.sendSliceWithRetry(slice));

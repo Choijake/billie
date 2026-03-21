@@ -1,5 +1,6 @@
 package com.nextdoor.nextdoor.domain.search.outbox;
 
+import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -22,12 +23,10 @@ import java.util.function.Supplier;
 @Slf4j
 public class OutboxProcessor {
 
-    private static final int BATCH_SIZE = 100;
-    private static final int CLAIM_TTL_SEC = 120;
-
     private final OutboxClaimService claimService;
     private final OutboxService outboxService;
     private final MeterRegistry meterRegistry;
+    private final SearchProperties props;
 
     private DistributionSummary batchSizeSummary;
 
@@ -45,13 +44,16 @@ public class OutboxProcessor {
         catch (InterruptedException ignored) {}
     }
 
-    @Scheduled(fixedDelay = 2000)
+    @Scheduled(fixedDelayString = "${search.outbox.poll-delay-ms:2000}")
     public void pollAndRoute() {
         Timer.Sample total = Timer.start(meterRegistry);
         try {
             // 클레임
             Timer.Sample claimT = Timer.start(meterRegistry);
-            List<OutboxEventDto> views = claimService.claimBatch(workerId, BATCH_SIZE, CLAIM_TTL_SEC);
+            List<OutboxEventDto> views = claimService.claimBatch(
+                    workerId,
+                    props.getOutbox().getBatchSize(),
+                    props.getOutbox().getClaimTtlSec());
             claimT.stop(Timer.builder("outbox.process.step.claim")
                     .description("클레임 확정 단계").publishPercentileHistogram()
                     .register(meterRegistry));
@@ -70,7 +72,7 @@ public class OutboxProcessor {
 
             // 성공 ID만 IN 마킹 (데드락 재시도 + 1000개 청크)
             Timer.Sample markT = Timer.start(meterRegistry);
-            int updated = markPublishedWithRetryInChunks(okIds, 1000);
+            int updated = markPublishedWithRetryInChunks(okIds, props.getOutbox().getMarkChunkSize());
             markT.stop(Timer.builder("outbox.process.step.mark")
                     .description("발행 마킹(IN) 단계").publishPercentileHistogram()
                     .register(meterRegistry));

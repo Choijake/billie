@@ -1,4 +1,4 @@
-package com.nextdoor.nextdoor.domain.search;
+package com.nextdoor.nextdoor.domain.search.lock;
 
 import lombok.*;
 import java.time.Instant;

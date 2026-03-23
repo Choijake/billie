@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -14,20 +16,24 @@ public class PostSearchResponseDto {
     private Long postId;
     private String title;
     private String productImage;
-    private String rentalFee;
-    private String deposit;
+    private Integer rentalFee;
+    private Integer deposit;
     private int likeCount;
-    private int dealCount;
+    private String category;
+    private String address;
+    private LocalDateTime createdAt;
 
     public static PostSearchResponseDto from(PostDocument document) {
         return PostSearchResponseDto.builder()
-            .postId(document.getId())
-            .title(document.getTitle())
-            .productImage(null) // PostDocument doesn't have productImage field
-            .rentalFee(String.valueOf(document.getRentalFee()))
-            .deposit(String.valueOf(document.getDeposit()))
-            .likeCount(document.getLikeCount())
-            .dealCount(0) // PostDocument doesn't have dealCount field
-            .build();
+                .postId(document.getId())
+                .title(document.getTitle())
+                .productImage(null)
+                .rentalFee(document.getRentalFee())
+                .deposit(document.getDeposit())
+                .likeCount(document.getLikeCount())
+                .category(document.getCategory())
+                .address(document.getAddress())
+                .createdAt(document.getCreatedAt())
+                .build();
     }
 }

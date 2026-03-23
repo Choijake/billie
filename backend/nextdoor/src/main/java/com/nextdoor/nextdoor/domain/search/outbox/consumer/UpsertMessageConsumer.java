@@ -34,7 +34,8 @@ public class UpsertMessageConsumer extends AbstractBatchElasticsearchConsumer {
 
         PostDocument doc = PostDocument.builder()
                 .id(e.getPostId()).title(e.getTitle()).content(e.getContent())
-                .rentalFee(e.getRentalFee()).deposit(e.getDeposit())
+                .rentalFee(e.getRentalFee() != null ? e.getRentalFee().intValue() : null)
+                .deposit(e.getDeposit() != null ? e.getDeposit().intValue() : null)
                 .address(e.getAddress())
                 .location(e.getLat() != null && e.getLon() != null
                         ? new PostDocument.GeoPoint(e.getLat(), e.getLon()) : null)

@@ -5,11 +5,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
 
-/**
- * PostWithLikeCountDto → PostDocument 변환 책임. (SRP)
- * 이전에는 IndexingMessageConsumer 안에 private 메서드로 존재했으며,
- * Consumer의 인덱싱 실행 책임과 섞여 있었다.
- */
 @Component
 public class PostDocumentMapper {
 
@@ -22,8 +17,8 @@ public class PostDocumentMapper {
                 .id(dto.getPostId())
                 .title(dto.getTitle())
                 .content(dto.getContent())
-                .rentalFee(dto.getRentalFee())
-                .deposit(dto.getDeposit())
+                .rentalFee(dto.getRentalFee() != null ? dto.getRentalFee().intValue() : null)
+                .deposit(dto.getDeposit() != null ? dto.getDeposit().intValue() : null)
                 .address(dto.getAddress())
                 .location(location)
                 .category(dto.getCategory() != null ? dto.getCategory().name() : null)

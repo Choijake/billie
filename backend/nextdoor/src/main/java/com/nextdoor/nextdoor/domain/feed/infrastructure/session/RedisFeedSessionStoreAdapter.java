@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.*;
+import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
@@ -24,15 +25,17 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     private final Clock clock;
 
     @Override
-    public boolean hasValidSession(Long memberId, Duration maxTtl) {
-        return redis.failFast("session.hasValidSession", () -> {
+    public Optional<String> resolveValidDataKey(Long memberId, Duration maxTtl) {
+        return redis.failFast("session.resolveValidDataKey", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
-            if (!StringUtils.hasText(dataKey)) return false;
-            if (!Boolean.TRUE.equals(redisTemplate.hasKey(dataKey))) return false;
+            if (!StringUtils.hasText(dataKey)) return Optional.empty();
+            if (!Boolean.TRUE.equals(redisTemplate.hasKey(dataKey))) return Optional.empty();
 
             long createdAt = parseCreatedAtMillis(dataKey);
-            return (clock.millis() - createdAt) <= maxTtl.toMillis();
+            if ((clock.millis() - createdAt) > maxTtl.toMillis()) return Optional.empty();
+
+            return Optional.of(dataKey);
         });
     }
 
@@ -74,11 +77,13 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     }
 
     @Override
-    public void touchSession(Long memberId, Duration ttl) {
+    public void touchSession(String dataKey, Duration ttl) {
+        if (!StringUtils.hasText(dataKey)) return;
+
         redis.failFastRun("session.touchSession", () -> {
-            String pointerKey = keyFactory.pointerKey(memberId);
-            String dataKey = redisTemplate.opsForValue().get(pointerKey);
-            if (!StringUtils.hasText(dataKey)) return;
+            // dataKey → pointer key 역산: "session:data:{id}:{ts}" → "session:ptr:{id}"
+            String memberId = dataKey.split(":")[2];
+            String pointerKey = keyFactory.pointerKey(Long.parseLong(memberId));
 
             redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
                 connection.keyCommands().expire(pointerKey.getBytes(), ttl.toSeconds());
@@ -89,12 +94,10 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     }
 
     @Override
-    public List<Long> getSessionRange(Long memberId, long start, long endInclusive) {
-        return redis.failFast("session.getSessionRange", () -> {
-            String pointerKey = keyFactory.pointerKey(memberId);
-            String dataKey = redisTemplate.opsForValue().get(pointerKey);
-            if (!StringUtils.hasText(dataKey)) return Collections.emptyList();
+    public List<Long> getSessionRange(String dataKey, long start, long endInclusive) {
+        if (!StringUtils.hasText(dataKey)) return Collections.emptyList();
 
+        return redis.failFast("session.getSessionRange", () -> {
             Set<String> ids = redisTemplate.opsForZSet().range(dataKey, start, endInclusive);
             if (ids == null || ids.isEmpty()) return Collections.emptyList();
 

@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -43,18 +44,13 @@ class RedisFeedSessionStoreTtlTest {
 
         RedisExecution redisExecution = new RedisExecution(createRedisCallExecutor());
 
-        // 고정된 세션 ID를 사용해 결정적인 dataKey 생성
-        SessionIdGenerator idGenerator = new SessionIdGenerator() {
-            @Override
-            public String nextId() {
-                return "fixed-session";
-            }
-        };
+        SessionIdGenerator idGenerator = () -> "fixed-session";
         keyFactory = new TimestampSessionKeyFactory(idGenerator);
 
-        sessionStore = new RedisFeedSessionStoreAdapter(redisTemplate, redisExecution, keyFactory);
+        sessionStore = new RedisFeedSessionStoreAdapter(
+                redisTemplate, redisExecution, keyFactory, Clock.systemUTC()
+        );
 
-        // 테스트 시작 전에 Redis 비우기
         redisTemplate.getConnectionFactory().getConnection().flushAll();
     }
 
@@ -81,7 +77,7 @@ class RedisFeedSessionStoreTtlTest {
             softly.assertThat(pttl1Data).isGreaterThan(0);
         });
 
-        // 3) 시간 경과로 TTL 감소
+        // 시간 경과로 TTL 감소
         Thread.sleep(1500);
 
         Long pttl2Ptr = redisTemplate.getExpire(pointerKey, TimeUnit.MILLISECONDS);
@@ -92,13 +88,12 @@ class RedisFeedSessionStoreTtlTest {
             softly.assertThat(pttl2Data).isLessThan(pttl1Data);
         });
 
-        // 4) touch -> TTL 슬라이딩 연장
-        sessionStore.touchSession(memberId, ttl);
+        // touch -> TTL 슬라이딩 연장 (dataKey 직접 전달)
+        sessionStore.touchSession(dataKey, ttl);
 
         Long pttl3Ptr = redisTemplate.getExpire(pointerKey, TimeUnit.MILLISECONDS);
         Long pttl3Data = redisTemplate.getExpire(dataKey, TimeUnit.MILLISECONDS);
 
-        // touch 이후 남은 TTL이 증가해야 함
         assertSoftly(softly -> {
             softly.assertThat(pttl3Ptr).isGreaterThan(pttl2Ptr);
             softly.assertThat(pttl3Data).isGreaterThan(pttl2Data);

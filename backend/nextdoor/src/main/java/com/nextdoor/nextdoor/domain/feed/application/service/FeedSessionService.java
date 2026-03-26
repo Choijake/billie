@@ -27,12 +27,13 @@ public class FeedSessionService {
     private final FeedConfig feedConfig;
 
     public List<Long> getIdsForWindow(Long memberId, long offset, int windowSize, GeoPoint point) {
-        ensureSession(memberId, point);
-        sessionStore.touchSession(memberId, feedConfig.sessionTtl());
+        String dataKey = ensureSession(memberId, point);
+
+        sessionStore.touchSession(dataKey, feedConfig.sessionTtl());
 
         long start = offset;
         long end = offset + windowSize - 1;
-        return sessionStore.getSessionRange(memberId, start, end);
+        return sessionStore.getSessionRange(dataKey, start, end);
     }
 
     public void pruneFromSession(Long memberId, Collection<Long> invalidIds) {
@@ -40,9 +41,12 @@ public class FeedSessionService {
         sessionStore.removeFromSession(memberId, invalidIds);
     }
 
-    // 세션 생성
-    private void ensureSession(Long memberId, GeoPoint point) {
-        if (sessionStore.hasValidSession(memberId, feedConfig.maxSessionTtl())) return;
+    /**
+     * 세션이 유효하면 dataKey를 반환하고, 없거나 만료되었으면 새로 생성 후 dataKey를 반환한다.
+     */
+    private String ensureSession(Long memberId, GeoPoint point) {
+        Optional<String> existing = sessionStore.resolveValidDataKey(memberId, feedConfig.maxSessionTtl());
+        if (existing.isPresent()) return existing.get();
 
         List<Long> candidateIds = geoIndexPort.findNearbyPostIds(
                 point, feedConfig.searchRadiusKm(), feedConfig.geoLimit()
@@ -56,5 +60,9 @@ public class FeedSessionService {
         );
 
         sessionStore.saveSession(memberId, sessionIds, feedConfig.sessionTtl());
+
+        // 새로 생성한 세션의 dataKey를 resolve
+        return sessionStore.resolveValidDataKey(memberId, feedConfig.maxSessionTtl())
+                .orElseThrow(() -> new IllegalStateException("세션 저장 직후 조회 실패"));
     }
 }

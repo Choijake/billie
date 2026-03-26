@@ -8,12 +8,14 @@ import lombok.Builder;
 @Builder
 public record FeedResponse(
         java.util.List<FeedItemDto> items,
-        int totalCount
+        int pageSize,
+        boolean hasNext
 ) {
-    public static FeedResponse of(java.util.List<FeedItemDto> items) {
+    public static FeedResponse of(java.util.List<FeedItemDto> items, int pageSize, boolean hasNext) {
         return FeedResponse.builder()
                 .items(items)
-                .totalCount(items.size())
+                .pageSize(items.size())
+                .hasNext(hasNext)
                 .build();
     }
 }

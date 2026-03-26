@@ -5,5 +5,8 @@ import com.nextdoor.nextdoor.domain.feed.application.service.dto.FeedItemDto;
 import java.util.List;
 
 public interface GetHomeFeedUseCase {
-    List<FeedItemDto> getHomeFeed(Long memberId, Double lat, Double lon, int page);
+
+    record FeedResult(List<FeedItemDto> items, boolean hasNext) {}
+
+    FeedResult getHomeFeed(Long memberId, Double lat, Double lon, int page);
 }

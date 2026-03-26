@@ -16,8 +16,10 @@ public class FeedConfig {
     private final int backfillExtraWindow;
     private final Duration sessionTtl;
 
+    private final Duration maxSessionTtl;
     private final Duration metadataTtl;
     private final Duration deletedTtl;
+    private final long decayConstantSeconds;
 
     public FeedConfig(
             @Value("${feed.page-size:10}") int pageSize,
@@ -26,8 +28,10 @@ public class FeedConfig {
             @Value("${feed.search.radius-km:5}") int searchRadiusKm,
             @Value("${feed.backfill.extra-window:50}") int backfillExtraWindow,
             @Value("${feed.session.ttl-seconds:1200}") long sessionTtlSeconds,
+            @Value("${feed.session.max-ttl-seconds:3600}") long maxSessionTtlSeconds,
             @Value("${feed.metadata.ttl-seconds:3600}") long metadataTtlSeconds,
-            @Value("${feed.deleted.ttl-seconds:7200}") long deletedTtlSeconds
+            @Value("${feed.deleted.ttl-seconds:7200}") long deletedTtlSeconds,
+            @Value("${feed.scoring.decay-constant-seconds:86400}") long decayConstantSeconds
     ) {
         this.pageSize = pageSize;
         this.sessionSize = sessionSize;
@@ -35,8 +39,10 @@ public class FeedConfig {
         this.searchRadiusKm = searchRadiusKm;
         this.backfillExtraWindow = backfillExtraWindow;
         this.sessionTtl = Duration.ofSeconds(sessionTtlSeconds);
+        this.maxSessionTtl = Duration.ofSeconds(maxSessionTtlSeconds);
         this.metadataTtl = Duration.ofSeconds(metadataTtlSeconds);
         this.deletedTtl = Duration.ofSeconds(deletedTtlSeconds);
+        this.decayConstantSeconds = decayConstantSeconds;
     }
 
     public int pageSize() { return pageSize; }
@@ -45,6 +51,8 @@ public class FeedConfig {
     public int searchRadiusKm() { return searchRadiusKm; }
     public int backfillExtraWindow() { return backfillExtraWindow; }
     public Duration sessionTtl() { return sessionTtl; }
+    public Duration maxSessionTtl() { return maxSessionTtl; }
     public Duration metadataTtl() { return metadataTtl; }
     public Duration deletedTtl() { return deletedTtl; }
+    public long decayConstantSeconds() { return decayConstantSeconds; }
 }

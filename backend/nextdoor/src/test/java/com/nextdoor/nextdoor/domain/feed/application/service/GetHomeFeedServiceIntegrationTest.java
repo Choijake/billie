@@ -78,16 +78,18 @@ class GetHomeFeedServiceIntegrationTest {
         List<Long> missingIds = List.of(200L);
 
         FeedPageComposer.Result result = new FeedPageComposer.Result(items, missingIds);
-        when(pageComposer.compose(windowIds, metadataMap, pageSize)).thenReturn(result);
+        when(pageComposer.compose(windowIds, metadataMap, pageSize + 1)).thenReturn(result);
 
         // when
-        List<FeedItemDto> actual = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+        var feedResult = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+        List<FeedItemDto> actual = feedResult.items();
 
         // then
         // 1) 반환된 피드는 composer가 만든 items와 동일해야 함
         assertSoftly(softly -> {
             softly.assertThat(actual).hasSize(1);
             softly.assertThat(actual.get(0)).isSameAs(item);
+            softly.assertThat(feedResult.hasNext()).isFalse();
         });
 
         // 2) missingIds는 세션에서 prune 대상이 되어야 함
@@ -121,10 +123,10 @@ class GetHomeFeedServiceIntegrationTest {
         when(staleCache.get(memberId, lat, lon, page, pageSize)).thenReturn(Optional.of(staleItems));
 
         // when
-        List<FeedItemDto> actual = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+        var feedResult = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
 
         // then
-        assertThat(actual).containsExactlyElementsOf(staleItems);
+        assertThat(feedResult.items()).containsExactlyElementsOf(staleItems);
         verify(esFallback, never()).getHomeFeed(anyDouble(), anyDouble(), anyInt(), anyInt());
         verify(staleCache, never()).putFromFallback(anyLong(), anyDouble(), anyDouble(), anyInt(), anyInt(), anyList());
     }
@@ -148,10 +150,10 @@ class GetHomeFeedServiceIntegrationTest {
         when(esFallback.getHomeFeed(lat, lon, page, pageSize)).thenReturn(fallbackItems);
 
         // when
-        List<FeedItemDto> actual = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
+        var feedResult = getHomeFeedService.getHomeFeed(memberId, lat, lon, page);
 
         // then
-        assertThat(actual).containsExactlyElementsOf(fallbackItems);
+        assertThat(feedResult.items()).containsExactlyElementsOf(fallbackItems);
         verify(esFallback).getHomeFeed(lat, lon, page, pageSize);
         verify(staleCache).putFromFallback(memberId, lat, lon, page, pageSize, fallbackItems);
     }

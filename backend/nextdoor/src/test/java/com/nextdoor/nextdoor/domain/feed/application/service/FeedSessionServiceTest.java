@@ -16,9 +16,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.times;
@@ -40,32 +41,32 @@ class FeedSessionServiceTest {
         // given
         Long memberId = 1L;
         int windowSize = 10;
-        long offset = 60L; // 61~70 구간이라고 가정
+        long offset = 60L;
         double lat = 37.498;
         double lon = 127.027;
         GeoPoint point = new GeoPoint(lat, lon);
+        String dataKey = "session:data:1:1711432800000-0";
 
-        // 세션이 아직 없다고 가정
-        given(sessionStore.hasValidSession(memberId)).willReturn(false);
+        // 세션이 아직 없다고 가정 → 첫 호출 empty, 저장 후 두 번째 호출에서 반환
+        given(sessionStore.resolveValidDataKey(eq(memberId), any(Duration.class)))
+                .willReturn(Optional.empty())
+                .willReturn(Optional.of(dataKey));
+        given(feedConfig.maxSessionTtl()).willReturn(Duration.ofHours(1));
 
-        // FeedConfig 설정
         given(feedConfig.searchRadiusKm()).willReturn(5);
         given(feedConfig.geoLimit()).willReturn(500);
         given(feedConfig.sessionSize()).willReturn(150);
         Duration ttl = Duration.ofMinutes(10);
         given(feedConfig.sessionTtl()).willReturn(ttl);
 
-        // 주변 후보 ID들
         List<Long> candidateIds = java.util.stream.LongStream.rangeClosed(1, 150).boxed().toList();
         given(geoIndexPort.findNearbyPostIds(point, 5.0, 500)).willReturn(candidateIds);
 
-        // 메타데이터 / 관심사는 이 테스트에서 중요하지 않으므로 빈 맵으로
         given(metadataService.getPostMetadata(candidateIds))
                 .willReturn(Collections.emptyMap());
         given(userInterestPort.getUserInterests(memberId))
                 .willReturn(Collections.<Category, Long>emptyMap());
 
-        // 세션에 저장될 최종 ID 목록 (여기서는 그냥 candidateIds 그대로 사용)
         List<Long> sessionIds = candidateIds;
         given(feedGenerator.generateSessionIds(
                 eq(candidateIds),
@@ -74,9 +75,8 @@ class FeedSessionServiceTest {
                 eq(150))
         ).willReturn(sessionIds);
 
-        // offset ~ offset+windowSize-1 범위에 대한 세션 내용
         List<Long> windowIds = java.util.stream.LongStream.rangeClosed(61, 70).boxed().toList();
-        given(sessionStore.getSessionRange(memberId, offset, offset + windowSize - 1))
+        given(sessionStore.getSessionRange(dataKey, offset, offset + windowSize - 1))
                 .willReturn(windowIds);
 
         // when
@@ -85,19 +85,10 @@ class FeedSessionServiceTest {
         // then
         assertThat(result).containsExactlyElementsOf(windowIds);
 
-        // ensureSession 내부 동작 검증
-        then(sessionStore).should(times(1)).hasValidSession(memberId);
-        then(geoIndexPort).should(times(1))
-                .findNearbyPostIds(point, 5.0, 500);
-        then(metadataService).should(times(1)).getPostMetadata(candidateIds);
-        then(userInterestPort).should(times(1)).getUserInterests(memberId);
-        then(feedGenerator).should(times(1))
-                .generateSessionIds(candidateIds, Collections.emptyMap(), Collections.<Category, Long>emptyMap(), 150);
+        then(sessionStore).should(times(2)).resolveValidDataKey(eq(memberId), any(Duration.class));
+        then(geoIndexPort).should(times(1)).findNearbyPostIds(point, 5.0, 500);
         then(sessionStore).should(times(1)).saveSession(memberId, sessionIds, ttl);
-
-        // getIdsForWindow 본문 동작 검증
-        then(sessionStore).should(times(1)).touchSession(memberId, ttl);
-        then(sessionStore).should(times(1))
-                .getSessionRange(memberId, offset, offset + windowSize - 1);
+        then(sessionStore).should(times(1)).touchSession(dataKey, ttl);
+        then(sessionStore).should(times(1)).getSessionRange(dataKey, offset, offset + windowSize - 1);
     }
 }

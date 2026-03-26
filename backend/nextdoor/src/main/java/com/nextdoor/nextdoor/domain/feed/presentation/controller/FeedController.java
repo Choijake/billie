@@ -24,8 +24,8 @@ public class FeedController {
     ) {
         log.info("[Feed Request] memberId={}, lat={}, lon={}, page={}", memberId, latitude, longitude, page);
 
-        var items = getHomeFeedUseCase.getHomeFeed(memberId, latitude, longitude, page);
-        var response = FeedResponse.of(items);
+        var result = getHomeFeedUseCase.getHomeFeed(memberId, latitude, longitude, page);
+        var response = FeedResponse.of(result.items(), result.items().size(), result.hasNext());
 
         return ResponseEntity.ok(response);
     }

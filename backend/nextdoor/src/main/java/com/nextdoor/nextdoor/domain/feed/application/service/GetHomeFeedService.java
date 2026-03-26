@@ -27,9 +27,9 @@ public class GetHomeFeedService implements GetHomeFeedUseCase {
     private final FeedConfig feedConfig;
 
     @Override
-    public List<FeedItemDto> getHomeFeed(Long memberId, Double lat, Double lon, int page) {
+    public FeedResult getHomeFeed(Long memberId, Double lat, Double lon, int page) {
         Optional<GeoPoint> pointOpt = GeoPoint.of(lat, lon);
-        if (pointOpt.isEmpty()) return Collections.emptyList();
+        if (pointOpt.isEmpty()) return new FeedResult(Collections.emptyList(), false);
 
         GeoPoint point = pointOpt.get();
 
@@ -46,38 +46,41 @@ public class GetHomeFeedService implements GetHomeFeedUseCase {
         }
     }
 
-    private List<FeedItemDto> getFromPrimary(Long memberId, Double lat, Double lon, int page, int size,
-                                             long offset, int windowSize, GeoPoint point) {
-        // 1 세션 window 조회
+    private FeedResult getFromPrimary(Long memberId, Double lat, Double lon, int page, int size,
+                                      long offset, int windowSize, GeoPoint point) {
         List<Long> windowIds = sessionService.getIdsForWindow(memberId, offset, windowSize, point);
-        if (windowIds.isEmpty()) return Collections.emptyList();
+        if (windowIds.isEmpty()) return new FeedResult(Collections.emptyList(), false);
 
-        // 2 메타 조회
         Map<Long, PostMetadata> metadataMap = metadataService.getPostMetadata(windowIds);
 
-        // 3 페이지 구성 + 누락 id 수집
-        FeedPageComposer.Result result = pageComposer.compose(windowIds, metadataMap, size);
+        // size + 1개를 요청하여 다음 페이지 존재 여부 판단
+        FeedPageComposer.Result result = pageComposer.compose(windowIds, metadataMap, size + 1);
 
-        // 4 누락/삭제 id는 세션에서 제거 (best-effort)
         if (!result.missingIds().isEmpty()) {
             bestEffortExecutor.run("feed.session.prune",
                     () -> sessionService.pruneFromSession(memberId, result.missingIds()));
         }
 
         List<FeedItemDto> items = result.items();
+        boolean hasNext = items.size() > size;
+        if (hasNext) {
+            items = items.subList(0, size);
+        }
+
         staleCache.putFromPrimary(memberId, lat, lon, page, size, items);
-        return items;
+        return new FeedResult(items, hasNext);
     }
 
-    private List<FeedItemDto> resolveWithStaleThenFallback(Long memberId, Double lat, Double lon, int page, int size) {
+    private FeedResult resolveWithStaleThenFallback(Long memberId, Double lat, Double lon, int page, int size) {
         Optional<List<FeedItemDto>> staleOpt = staleCache.get(memberId, lat, lon, page, size);
         if (staleOpt.isPresent()) {
             log.info("[Feed Stale Hit] memberId={}, page={}", memberId, page);
-            return staleOpt.get();
+            List<FeedItemDto> items = staleOpt.get();
+            return new FeedResult(items, items.size() >= size);
         }
 
         List<FeedItemDto> fallbackItems = esFallback.getHomeFeed(lat, lon, page, size);
         staleCache.putFromFallback(memberId, lat, lon, page, size, fallbackItems);
-        return fallbackItems;
+        return new FeedResult(fallbackItems, fallbackItems.size() >= size);
     }
 }

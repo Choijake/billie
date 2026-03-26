@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.List;
 
 public interface FeedSessionStore {
-    boolean hasValidSession(Long memberId);
+    boolean hasValidSession(Long memberId, Duration maxTtl);
     void saveSession(Long memberId, List<Long> postIds, Duration ttl);
     void touchSession(Long memberId, Duration ttl);
     List<Long> getSessionRange(Long memberId, long start, long endInclusive);

@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -46,7 +47,8 @@ class FeedSessionServiceTest {
         GeoPoint point = new GeoPoint(lat, lon);
 
         // 세션이 아직 없다고 가정
-        given(sessionStore.hasValidSession(memberId)).willReturn(false);
+        given(sessionStore.hasValidSession(eq(memberId), any(Duration.class))).willReturn(false);
+        given(feedConfig.maxSessionTtl()).willReturn(Duration.ofHours(1));
 
         // FeedConfig 설정
         given(feedConfig.searchRadiusKm()).willReturn(5);
@@ -86,7 +88,7 @@ class FeedSessionServiceTest {
         assertThat(result).containsExactlyElementsOf(windowIds);
 
         // ensureSession 내부 동작 검증
-        then(sessionStore).should(times(1)).hasValidSession(memberId);
+        then(sessionStore).should(times(1)).hasValidSession(eq(memberId), any(Duration.class));
         then(geoIndexPort).should(times(1))
                 .findNearbyPostIds(point, 5.0, 500);
         then(metadataService).should(times(1)).getPostMetadata(candidateIds);

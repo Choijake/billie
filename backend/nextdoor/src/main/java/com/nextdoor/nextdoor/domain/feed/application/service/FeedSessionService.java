@@ -42,7 +42,7 @@ public class FeedSessionService {
 
     // 세션 생성
     private void ensureSession(Long memberId, GeoPoint point) {
-        if (sessionStore.hasValidSession(memberId)) return;
+        if (sessionStore.hasValidSession(memberId, feedConfig.maxSessionTtl())) return;
 
         List<Long> candidateIds = geoIndexPort.findNearbyPostIds(
                 point, feedConfig.searchRadiusKm(), feedConfig.geoLimit()

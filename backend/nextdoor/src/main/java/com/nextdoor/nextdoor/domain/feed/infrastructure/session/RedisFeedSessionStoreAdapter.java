@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.*;
 
@@ -20,15 +21,25 @@ public class RedisFeedSessionStoreAdapter implements FeedSessionStore {
     private final StringRedisTemplate redisTemplate;
     private final RedisExecution redis;
     private final FeedSessionKeyFactory keyFactory;
+    private final Clock clock;
 
     @Override
-    public boolean hasValidSession(Long memberId) {
+    public boolean hasValidSession(Long memberId, Duration maxTtl) {
         return redis.failFast("session.hasValidSession", () -> {
             String pointerKey = keyFactory.pointerKey(memberId);
             String dataKey = redisTemplate.opsForValue().get(pointerKey);
             if (!StringUtils.hasText(dataKey)) return false;
-            return Boolean.TRUE.equals(redisTemplate.hasKey(dataKey));
+            if (!Boolean.TRUE.equals(redisTemplate.hasKey(dataKey))) return false;
+
+            long createdAt = parseCreatedAtMillis(dataKey);
+            return (clock.millis() - createdAt) <= maxTtl.toMillis();
         });
+    }
+
+    private long parseCreatedAtMillis(String dataKey) {
+        // dataKey format: "session:data:{memberId}:{epochMillis}-{seq}"
+        String suffix = dataKey.substring(dataKey.lastIndexOf(':') + 1);
+        return Long.parseLong(suffix.split("-")[0]);
     }
 
     @Override

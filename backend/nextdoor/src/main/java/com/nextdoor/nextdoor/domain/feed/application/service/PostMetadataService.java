@@ -34,6 +34,14 @@ public class PostMetadataService {
         }
     }
 
+    public void evict(Long postId) {
+        if (postId == null) return;
+        bestEffortExecutor.run(
+                "feed.metadata.evict",
+                () -> cachePort.evict(metaKey(postId))
+        );
+    }
+
     public void markDeleted(Long postId) {
         if (postId == null) return;
         bestEffortExecutor.run(

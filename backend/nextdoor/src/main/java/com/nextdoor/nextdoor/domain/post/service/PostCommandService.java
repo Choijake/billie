@@ -3,6 +3,7 @@ package com.nextdoor.nextdoor.domain.post.service;
 import com.nextdoor.nextdoor.domain.post.domain.Category;
 import com.nextdoor.nextdoor.domain.post.domain.Post;
 import com.nextdoor.nextdoor.domain.post.event.PostLocationEvent;
+import com.nextdoor.nextdoor.domain.post.event.PostUpdatedEvent;
 import com.nextdoor.nextdoor.domain.post.event.PostViewedEvent;
 import com.nextdoor.nextdoor.domain.post.exception.NoSuchPostException;
 import com.nextdoor.nextdoor.domain.post.mapper.PostMapper;
@@ -110,6 +111,7 @@ public class PostCommandService implements PostCommandUseCase {
         int likeCount = postLikeCountRepository.findById(updated.getId())
                 .map(lc -> lc.getLikeCount().intValue()).orElse(0);
         postIndexPort.requestUpsert(updated, likeCount);
+        eventPublisher.publishEvent(PostUpdatedEvent.builder().postId(updated.getId()).build());
 
         List<String> imageUrls = new ArrayList<>();
         if (command.getProductImages() == null || command.getProductImages().isEmpty()) {

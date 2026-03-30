@@ -9,4 +9,5 @@ public interface PostMetadataCachePort {
     List<String> multiGetRaw(List<String> keys);
     void setAllRaw(Map<String, String> kv, Duration ttl);
     void markDeleted(Collection<String> keys, String tombstoneValue, Duration ttl);
+    void evict(String key);
 }

@@ -51,4 +51,10 @@ public class RedisPostMetadataCacheAdapter implements PostMetadataCachePort {
             });
         });
     }
+
+    @Override
+    public void evict(String key) {
+        if (key == null) return;
+        redis.failFastRun("metadata.evict", () -> redisTemplate.delete(key));
+    }
 }

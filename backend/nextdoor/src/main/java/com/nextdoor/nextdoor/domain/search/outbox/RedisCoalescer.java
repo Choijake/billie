@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Profile("outbox")
 @RequiredArgsConstructor
 @Slf4j
-public class RedisCoalescer {
+public class RedisCoalescer implements EventCoalescer {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final SqsPublisher sqsPublisher;
@@ -61,8 +61,6 @@ public class RedisCoalescer {
                 .description("로컬에서 추적 중인 키 개수").register(meterRegistry);
     }
 
-    // ──── Public API ─────────────────────────────────────────────────────────
-
     public void put(Long postId, Long version, String payload) {
         Timer.Sample totalTimer = Timer.start(meterRegistry);
         try {
@@ -95,8 +93,6 @@ public class RedisCoalescer {
         }
     }
 
-    // ──── Scheduled Flush ────────────────────────────────────────────────────
-
     @Scheduled(fixedDelayString = "${search.coalescer.flush-delay-ms:30000}")
     public void flushNearExpiry() {
         Timer.Sample totalTimer = Timer.start(meterRegistry);
@@ -119,9 +115,6 @@ public class RedisCoalescer {
         }
     }
 
-    // ──── Private Steps ───────────────────────────────────────────────────────
-
-    /** trackedKeys에서 TTL 임박 키를 수집하고 맵에서 제거한다. */
     private List<String> collectDueKeys() {
         long threshold = props.getCoalescer().getFlushThresholdMs();
         long now = System.currentTimeMillis();
@@ -138,7 +131,6 @@ public class RedisCoalescer {
         return dueKeys;
     }
 
-    /** 파이프라인 GET으로 Redis에서 값을 일괄 조회한다. */
     private List<Object> fetchRedisValues(List<String> keys) {
         Timer.Sample t = Timer.start(meterRegistry);
         try {
@@ -153,12 +145,6 @@ public class RedisCoalescer {
         }
     }
 
-    /**
-     * 값이 있는 키의 payload를 SQS로 전송하고, 대상 키를 Redis에서 삭제한다.
-     * SqsPublisher.sendUpsertBatch()가 내부적으로 청킹하므로 별도 미니배치 불필요.
-     *
-     * @return 전송한 메시지 수
-     */
     private int sendAndDeleteBatch(List<String> dueKeys, List<Object> values) {
         List<String> payloads = new ArrayList<>(dueKeys.size());
         List<String> keysToDelete = new ArrayList<>(dueKeys.size());
@@ -196,8 +182,6 @@ public class RedisCoalescer {
 
         return payloads.size();
     }
-
-    // ──── Helpers ─────────────────────────────────────────────────────────────
 
     private String buildKey(Long id) {
         return String.format(props.getCoalescer().getKeyFormat(), id);

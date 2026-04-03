@@ -1,0 +1,152 @@
+# ─── 벤치마크 전용 프로파일 ─────────────────────────────────────────
+# 하나의 JVM에서 outbox + worker 역할을 모두 수행.
+# Docker Compose (search-benchmark/docker-compose.benchmark.yml)와 함께 사용.
+
+spring:
+  docker:
+    compose:
+      enabled: false
+
+  main:
+    web-application-type: none
+    allow-bean-definition-overriding: true
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - org.springframework.boot.autoconfigure.websocket.servlet.WebSocketServletAutoConfiguration
+      - org.springframework.boot.autoconfigure.quartz.QuartzAutoConfiguration
+      - org.springframework.ai.model.vertexai.autoconfigure.gemini.VertexAiGeminiChatAutoConfiguration
+      - org.springframework.ai.model.vertexai.autoconfigure.embedding.VertexAiEmbeddingConnectionAutoConfiguration
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/nextdoor?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: root
+    password: root1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+      connection-timeout: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        default_batch_fetch_size: 100
+        jdbc:
+          batch_size: 50
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
+      timeout: 3000ms
+
+  elasticsearch:
+    uris: localhost:9200
+
+  task:
+    execution:
+      thread-name-prefix: bench-async-
+      pool:
+        core-size: 4
+        max-size: 4
+        queue-capacity: 500
+    scheduling:
+      pool:
+        size: 4
+
+custom:
+  elasticsearch:
+    enabled: true
+  fintech:
+    apiKey: benchmark-dummy-key
+  google:
+    ai:
+      gemini:
+        model:
+          flash: gemini-dummy
+          pro: gemini-dummy
+          flashHigh: gemini-dummy
+        location: us-central1
+        project-id: benchmark-dummy
+  damage-analyzer-prompt-location: classpath:dummy.txt
+  summarizer-prompt-location: classpath:dummy.txt
+  pair-damage-comparator-prompt-location: classpath:dummy.txt
+  product-analyzer-prompt-location: classpath:dummy.txt
+  product-condition-analyzer-prompt-location: classpath:dummy.txt
+
+cloud:
+  aws:
+    credentials:
+      access-key: test
+      secret-key: test
+    s3:
+      bucket: benchmark-dummy-bucket
+    region:
+      static: us-east-1
+
+# ─── SQS (LocalStack) ─────────────────────────────────────────────
+sqs:
+  queue:
+    reindex: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/billie-indexer-queue
+    upsert: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/posts-upsert.fifo
+    delete: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/posts-delete
+
+spring.cloud.aws:
+  region:
+    static: us-east-1
+  credentials:
+    access-key: test
+    secret-key: test
+  sqs:
+    endpoint: http://localhost:4566
+
+# ─── Search 설정 ───────────────────────────────────────────────────
+search:
+  indexName: posts
+  outbox:
+    batchSize: 100
+    claimTtlSec: 120
+    pollDelayMs: 2000
+    markChunkSize: 1000
+  bulk:
+    maxConcurrency: 2
+    sliceMaxActions: 300
+    scheduleMs: 1000
+    targetSliceBytes: 8388608
+    maxSliceBytes: 15728640
+  sqs:
+    batchLimit: 10
+
+# ─── Logging ───────────────────────────────────────────────────────
+logging:
+  level:
+    root: WARN
+    com.nextdoor.nextdoor.domain.search: INFO
+
+# ─── Actuator / Metrics ───────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  metrics:
+    tags:
+      application: benchmark

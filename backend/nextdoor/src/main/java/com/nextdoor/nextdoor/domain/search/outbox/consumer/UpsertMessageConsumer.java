@@ -29,7 +29,7 @@ public class UpsertMessageConsumer extends AbstractBatchElasticsearchConsumer {
     }
 
     @Override
-    protected BulkOperation buildOperation(String msg) throws Exception {
+    protected OperationWithMeta buildOperationWithMeta(String msg) throws Exception {
         PostUpsertEvent e = jsons.toUpsert(msg);
 
         PostDocument doc = PostDocument.builder()
@@ -43,13 +43,14 @@ public class UpsertMessageConsumer extends AbstractBatchElasticsearchConsumer {
                 .createdAt(LocalDateTime.parse(e.getCreatedAtIso()))
                 .build();
 
-        return BulkOperation.of(b -> b.index(i -> i
+        BulkOperation op = BulkOperation.of(b -> b.index(i -> i
                 .index(indexName)
                 .id(String.valueOf(e.getPostId()))
                 .version(e.getVersion())
                 .versionType(VersionType.ExternalGte)
                 .document(doc)
         ));
+        return new OperationWithMeta(op, e.getPostId(), e.getVersion());
     }
 
     @Override

@@ -18,7 +18,6 @@ public class SearchProperties {
     private String indexName = "posts";
 
     private final Outbox outbox = new Outbox();
-    private final Coalescer coalescer = new Coalescer();
     private final Bulk bulk = new Bulk();
     private final Reindex reindex = new Reindex();
     private final Sqs sqs = new Sqs();
@@ -35,18 +34,6 @@ public class SearchProperties {
         private long pollDelayMs = 2000;
         /** markPublished IN 절 청크 크기 */
         private int markChunkSize = 1000;
-    }
-
-    @Data
-    public static class Coalescer {
-        /** Redis 키 포맷 */
-        private String keyFormat = "idx:post:%d";
-        /** 키 TTL (초) */
-        private long ttlSec = 180;
-        /** 만료 임박 기준 (ms). 남은 TTL이 이 값 이하이면 플러시 */
-        private long flushThresholdMs = 30_000;
-        /** 플러시 스케줄 주기 (ms) */
-        private long flushDelayMs = 30_000;
     }
 
     @Data

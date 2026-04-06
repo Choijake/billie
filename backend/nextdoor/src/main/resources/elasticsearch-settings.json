@@ -6,11 +6,47 @@
         "decompound_mode": "mixed"
       }
     },
+    "filter": {
+      "nori_posfilter": {
+        "type": "nori_part_of_speech",
+        "stoptags": [
+          "E", "IC", "J",
+          "MAJ", "NNB", "NP",
+          "SC", "SE", "SF", "SP", "SSC", "SSO", "SY",
+          "VCN", "VCP", "VSV", "VV", "VX",
+          "XSA", "XSV"
+        ]
+      },
+      "custom_stop": {
+        "type": "stop",
+        "stopwords": ["정말", "매우", "아주", "진짜", "약간", "조금", "아마"]
+      },
+      "edge_ngram_filter": {
+        "type": "edge_ngram",
+        "min_gram": 1,
+        "max_gram": 10
+      }
+    },
     "analyzer": {
-      "nori": {
+      "nori_index": {
         "type": "custom",
         "tokenizer": "nori_tokenizer_mixed",
-        "filter": ["lowercase"]
+        "filter": ["nori_posfilter", "custom_stop", "lowercase"]
+      },
+      "nori_search": {
+        "type": "custom",
+        "tokenizer": "nori_tokenizer_mixed",
+        "filter": ["nori_posfilter", "custom_stop", "lowercase"]
+      },
+      "autocomplete_index": {
+        "type": "custom",
+        "tokenizer": "nori_tokenizer_mixed",
+        "filter": ["nori_posfilter", "lowercase", "edge_ngram_filter"]
+      },
+      "autocomplete_search": {
+        "type": "custom",
+        "tokenizer": "nori_tokenizer_mixed",
+        "filter": ["nori_posfilter", "lowercase"]
       }
     }
   }

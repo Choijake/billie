@@ -2,7 +2,6 @@ package com.nextdoor.nextdoor.domain.search.document;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
@@ -10,7 +9,6 @@ import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.support.PageableExecutionUtils;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 public class CustomPostSearchRepositoryImpl implements CustomPostSearchRepository {
@@ -19,15 +17,28 @@ public class CustomPostSearchRepositoryImpl implements CustomPostSearchRepositor
     private final PostSearchQueryBuilder queryBuilder;
 
     @Override
-    public Page<PostDocument> searchByKeywordWithAddress(String keyword, String address, Pageable pageable) {
-        NativeQuery searchQuery = queryBuilder.buildKeywordAddressQuery(keyword, address, pageable);
+    public Page<PostDocument> search(SearchRequest request) {
+        NativeQuery query = switch (request.getSortType()) {
+            case RECOMMENDED -> queryBuilder.buildRecommendedQuery(request);
+            case NEWEST      -> queryBuilder.buildNewestQuery(request);
+            case CHEAPEST    -> queryBuilder.buildCheapestQuery(request);
+            case EXPENSIVE   -> queryBuilder.buildExpensiveQuery(request);
+            case NEAREST     -> queryBuilder.buildNearestQuery(request);
+        };
 
-        SearchHits<PostDocument> searchHits = elasticsearchOperations.search(searchQuery, PostDocument.class);
-
-        List<PostDocument> content = searchHits.getSearchHits().stream()
+        SearchHits<PostDocument> hits = elasticsearchOperations.search(query, PostDocument.class);
+        List<PostDocument> content = hits.getSearchHits().stream()
                 .map(SearchHit::getContent)
-                .collect(Collectors.toList());
+                .toList();
+        return PageableExecutionUtils.getPage(content, request.getPageable(), hits::getTotalHits);
+    }
 
-        return PageableExecutionUtils.getPage(content, pageable, searchHits::getTotalHits);
+    @Override
+    public List<PostDocument> autocomplete(String keyword, double lat, double lon) {
+        NativeQuery query = queryBuilder.buildAutocompleteQuery(keyword, lat, lon);
+        SearchHits<PostDocument> hits = elasticsearchOperations.search(query, PostDocument.class);
+        return hits.getSearchHits().stream()
+                .map(SearchHit::getContent)
+                .toList();
     }
 }

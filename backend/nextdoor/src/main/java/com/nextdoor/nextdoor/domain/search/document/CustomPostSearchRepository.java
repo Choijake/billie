@@ -1,8 +1,10 @@
 package com.nextdoor.nextdoor.domain.search.document;
 
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+
+import java.util.List;
 
 public interface CustomPostSearchRepository {
-    Page<PostDocument> searchByKeywordWithAddress(String keyword, String address, Pageable pageable);
+    Page<PostDocument> search(SearchRequest request);
+    List<PostDocument> autocomplete(String keyword, double lat, double lon);
 }

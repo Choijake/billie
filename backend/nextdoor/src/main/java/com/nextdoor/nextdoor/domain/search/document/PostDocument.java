@@ -15,50 +15,49 @@ import java.time.LocalDateTime;
 @Builder
 public class PostDocument {
 
-  @Id
-  private Long id;
+    @Id
+    private Long id;
 
-  @MultiField(
-          mainField = @Field(type = FieldType.Text, analyzer = "nori"),
-          otherFields = {@InnerField(suffix = "keyword", type = FieldType.Keyword, ignoreAbove = 256)}
-  )
-  private String title;
+    @MultiField(
+            mainField = @Field(type = FieldType.Text, analyzer = "nori_index", searchAnalyzer = "nori_search"),
+            otherFields = {
+                    @InnerField(suffix = "keyword", type = FieldType.Keyword, ignoreAbove = 256),
+                    @InnerField(suffix = "raw", type = FieldType.Text, analyzer = "standard"),
+                    @InnerField(suffix = "autocomplete", type = FieldType.Text,
+                            analyzer = "autocomplete_index", searchAnalyzer = "autocomplete_search")
+            }
+    )
+    private String title;
 
-  @MultiField(
-          mainField = @Field(type = FieldType.Text, analyzer = "nori"),
-          otherFields = {@InnerField(suffix = "keyword", type = FieldType.Keyword, ignoreAbove = 256)}
-  )
-  private String content;
+    @Field(type = FieldType.Text, analyzer = "nori_index", searchAnalyzer = "nori_search")
+    private String content;
 
-  @Field(type = FieldType.Long)
-  private Long rentalFee;
+    @Field(type = FieldType.Keyword)
+    private String address;
 
-  @Field(type = FieldType.Long)
-  private Long deposit;
+    @GeoPointField
+    private GeoPoint location;
 
-  @MultiField(
-          mainField = @Field(type = FieldType.Text, analyzer = "nori"),
-          otherFields = {@InnerField(suffix = "keyword", type = FieldType.Keyword, ignoreAbove = 256)}
-  )
-  private String address;
+    @Field(type = FieldType.Keyword)
+    private String category;
 
-  @GeoPointField
-  private GeoPoint location;
+    @Field(type = FieldType.Integer)
+    private Integer rentalFee;
 
-  @Field(type = FieldType.Keyword)
-  private String category;
+    @Field(type = FieldType.Integer)
+    private Integer deposit;
 
-  @Field(type = FieldType.Integer)
-  private Integer likeCount;
+    @Field(type = FieldType.Integer)
+    private Integer likeCount;
 
-  @Field(type = FieldType.Date)
-  private LocalDateTime createdAt;
+    @Field(type = FieldType.Date)
+    private LocalDateTime createdAt;
 
-  @Data
-  @NoArgsConstructor
-  @AllArgsConstructor
-  public static class GeoPoint {
-    private Double lat;
-    private Double lon;
-  }
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GeoPoint {
+        private Double lat;
+        private Double lon;
+    }
 }

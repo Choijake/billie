@@ -14,8 +14,6 @@ import java.util.List;
 @Slf4j
 public class OutboxService {
     private final SqsPublisher sqsPublisher;
-    private final RedisCoalescer coalescer;
-
     private final MeterRegistry meterRegistry;
 
     public List<Long> publishViewsAndCollectSuccessIds(List<OutboxEventDto> batch) {
@@ -26,22 +24,17 @@ public class OutboxService {
                 OutboxEventType type = OutboxEventType.from(e.getEventType());
                 if (type == OutboxEventType.DELETE) {
                     sqsPublisher.sendDelete(e.getPayload()).join();
-                    //성공건만 리스트에 담음
-                    ok.add(e.getId());
                     t.stop(Timer.builder("outbox.process.event.delete")
                             .publishPercentileHistogram().register(meterRegistry));
                 } else {
-                    coalescer.put(e.getAggregateId(), e.getVersion(), e.getPayload());
-                    //성공건만 리스트에 담음
-                    ok.add(e.getId());
+                    sqsPublisher.sendUpsert(e.getPayload()).join();
                     t.stop(Timer.builder("outbox.process.event.upsert")
                             .publishPercentileHistogram().register(meterRegistry));
                 }
+                ok.add(e.getId());
             } catch (Exception ex) {
                 t.stop(Timer.builder("outbox.process.event.error")
                         .publishPercentileHistogram().register(meterRegistry));
-
-                //실패하면 재시도
                 meterRegistry.counter("outbox.process.event.failed").increment();
                 log.warn("Outbox 이벤트 처리 실패 id={}", e.getId(), ex);
             }

@@ -1,13 +1,14 @@
 package com.nextdoor.nextdoor.domain.post.controller;
 
 import com.nextdoor.nextdoor.domain.post.controller.dto.PostSearchResponseDto;
-import com.nextdoor.nextdoor.domain.search.suggestion.KeywordSuggestionService;
+import com.nextdoor.nextdoor.domain.search.document.SearchRequest;
+import com.nextdoor.nextdoor.domain.search.document.SearchSortType;
 import com.nextdoor.nextdoor.domain.search.document.PostSearchService;
+import com.nextdoor.nextdoor.domain.search.suggestion.KeywordSuggestionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,37 +23,45 @@ import java.util.List;
 @RequestMapping("/api/v1/posts")
 public class SearchController {
 
-  private final PostSearchService postSearchService;
-  private final KeywordSuggestionService keywordSuggestionService;
+    private final PostSearchService postSearchService;
+    private final KeywordSuggestionService keywordSuggestionService;
 
-  @GetMapping("/search")
-  public ResponseEntity<Page<PostSearchResponseDto>> search(
-          @RequestParam(value = "keyword", required = false, defaultValue = "") String keyword,
-          @RequestParam(value = "address", required = false) String address,
-          @RequestParam(value = "page", defaultValue = "0") int page,
-          @RequestParam(value = "size", defaultValue = "10") int size,
-          @RequestParam(value = "sort", defaultValue = "createdAt") String sort,
-          @RequestParam(value = "direction", defaultValue = "DESC") String direction
-  ) {
-    Sort.Direction sortDirection = "ASC".equalsIgnoreCase(direction)
-            ? Sort.Direction.ASC
-            : Sort.Direction.DESC;
+    @GetMapping("/search")
+    public ResponseEntity<Page<PostSearchResponseDto>> search(
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "lat") double lat,
+            @RequestParam(value = "lon") double lon,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @RequestParam(value = "sortType", defaultValue = "RECOMMENDED") String sortType,
+            @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "minPrice", required = false) Integer minPrice,
+            @RequestParam(value = "maxPrice", required = false) Integer maxPrice
+    ) {
+        if (keyword != null && !keyword.isBlank()) {
+            keywordSuggestionService.saveSearchKeyword(keyword);
+        }
 
-    PageRequest pageRequest = PageRequest.of(page, size, Sort.by(sortDirection, sort));
+        SearchRequest request = SearchRequest.builder()
+                .keyword(keyword)
+                .lat(lat)
+                .lon(lon)
+                .sortType(SearchSortType.valueOf(sortType.toUpperCase()))
+                .category(category)
+                .minPrice(minPrice)
+                .maxPrice(maxPrice)
+                .pageable(PageRequest.of(page, size))
+                .build();
 
-    if (keyword != null && !keyword.isBlank()) {
-      keywordSuggestionService.saveSearchKeyword(keyword);
+        return ResponseEntity.ok(postSearchService.search(request));
     }
 
-    Page<PostSearchResponseDto> results = postSearchService.searchPostsByKeywordInAddress(keyword, address, pageRequest);
-    return ResponseEntity.ok(results);
-  }
-
-  @GetMapping("/search/suggestions")
-  public ResponseEntity<List<String>> getSuggestions(
-          @RequestParam(value = "prefix", required = false, defaultValue = "") String prefix
-  ) {
-    List<String> suggestions = keywordSuggestionService.suggestKeywords(prefix);
-    return ResponseEntity.ok(suggestions);
-  }
+    @GetMapping("/search/suggestions")
+    public ResponseEntity<List<PostSearchResponseDto>> getSuggestions(
+            @RequestParam("prefix") String prefix,
+            @RequestParam("lat") double lat,
+            @RequestParam("lon") double lon
+    ) {
+        return ResponseEntity.ok(postSearchService.autocomplete(prefix, lat, lon));
+    }
 }

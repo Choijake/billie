@@ -26,15 +26,16 @@ public class DeleteMessageConsumer extends AbstractBatchElasticsearchConsumer {
     }
 
     @Override
-    protected BulkOperation buildOperation(String msg) throws Exception {
+    protected OperationWithMeta buildOperationWithMeta(String msg) throws Exception {
         PostDeleteEvent e = jsons.toDelete(msg);
 
-        return BulkOperation.of(b -> b.delete(d -> d
+        BulkOperation op = BulkOperation.of(b -> b.delete(d -> d
                 .index(indexName)
                 .id(String.valueOf(e.getPostId()))
                 .version(e.getVersion())
                 .versionType(VersionType.ExternalGte)
         ));
+        return new OperationWithMeta(op, e.getPostId(), e.getVersion());
     }
 
     @Override

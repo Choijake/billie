@@ -51,8 +51,9 @@ public class FeedSessionService {
         Map<Long, PostMetadata> metadataMap = metadataService.getPostMetadata(candidateIds);
         Map<Category, Long> interests = userInterestPort.getUserInterests(memberId);
 
+        long shuffleSeed = memberId ^ System.currentTimeMillis();
         List<Long> sessionIds = feedGenerator.generateSessionIds(
-                candidateIds, metadataMap, interests, feedConfig.sessionSize()
+                candidateIds, metadataMap, interests, feedConfig.sessionSize(), shuffleSeed
         );
 
         sessionStore.saveSession(memberId, sessionIds, feedConfig.sessionTtl());

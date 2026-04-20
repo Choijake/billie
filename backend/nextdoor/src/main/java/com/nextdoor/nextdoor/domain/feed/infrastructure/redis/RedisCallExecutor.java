@@ -12,18 +12,15 @@ public class RedisCallExecutor {
     private final CircuitBreaker feedRedisGeoCircuitBreaker;
     private final CircuitBreaker feedRedisSessionCircuitBreaker;
     private final CircuitBreaker feedRedisMetadataCircuitBreaker;
-    private final CircuitBreaker feedRedisInterestCircuitBreaker;
 
     public RedisCallExecutor(
             @Qualifier("feedRedisGeoCircuitBreaker") CircuitBreaker feedRedisGeoCircuitBreaker,
             @Qualifier("feedRedisSessionCircuitBreaker") CircuitBreaker feedRedisSessionCircuitBreaker,
-            @Qualifier("feedRedisMetadataCircuitBreaker") CircuitBreaker feedRedisMetadataCircuitBreaker,
-            @Qualifier("feedRedisInterestCircuitBreaker") CircuitBreaker feedRedisInterestCircuitBreaker
+            @Qualifier("feedRedisMetadataCircuitBreaker") CircuitBreaker feedRedisMetadataCircuitBreaker
     ) {
         this.feedRedisGeoCircuitBreaker = feedRedisGeoCircuitBreaker;
         this.feedRedisSessionCircuitBreaker = feedRedisSessionCircuitBreaker;
         this.feedRedisMetadataCircuitBreaker = feedRedisMetadataCircuitBreaker;
-        this.feedRedisInterestCircuitBreaker = feedRedisInterestCircuitBreaker;
     }
 
     public <T> T call(String op, Supplier<T> supplier) {
@@ -38,10 +35,9 @@ public class RedisCallExecutor {
 
     private CircuitBreaker resolveCircuitBreaker(String op) {
         return switch (RedisOpType.fromOp(op)) {
-            case GEO -> feedRedisGeoCircuitBreaker;
+            case GEO      -> feedRedisGeoCircuitBreaker;
             case METADATA -> feedRedisMetadataCircuitBreaker;
-            case INTEREST -> feedRedisInterestCircuitBreaker;
-            case SESSION -> feedRedisSessionCircuitBreaker;
+            case SESSION  -> feedRedisSessionCircuitBreaker;
         };
     }
 }

@@ -3,8 +3,7 @@ package com.nextdoor.nextdoor.domain.feed.infrastructure.redis;
 public enum RedisOpType {
     GEO("geo."),
     SESSION("session."),
-    METADATA("metadata."),
-    INTEREST("interest.");
+    METADATA("metadata.");
 
     private final String prefix;
 

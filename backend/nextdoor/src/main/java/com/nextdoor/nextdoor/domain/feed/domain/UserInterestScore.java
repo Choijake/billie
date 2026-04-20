@@ -37,10 +37,24 @@ public class UserInterestScore {
     private Category category;
 
     /**
-     * 누적 점수
-     * - VIEW: +1
-     * - LIKE: +3
-     * - RESERVE: +10
+     * 누적 관심도 점수.
+     *
+     * <p>가중치 (10x 스케일링 적용):
+     * <ul>
+     *   <li>VIEW: +10</li>
+     *   <li>LIKE: +30</li>
+     *   <li>RESERVE: +100</li>
+     * </ul>
+     *
+     * <p>매일 새벽 FLOOR(score * 0.7) 감쇠 적용.
+     * FLOOR 정수 절사로 인해 저점 구간에서 감쇠가 가속된다:
+     * <ul>
+     *   <li>score 10 (VIEW 1회): 5일 후 소멸</li>
+     *   <li>score 30 (LIKE 1회): 8일 후 소멸</li>
+     *   <li>score 100 (RESERVE 1회): ~13일 후 소멸</li>
+     * </ul>
+     * 이 가속 감쇠는 의도된 동작이다. 약한 관심이 빠르게 소멸되는 것은
+     * 피드 신선도 유지에 부합한다.
      */
     @Column(nullable = false)
     private Long score;

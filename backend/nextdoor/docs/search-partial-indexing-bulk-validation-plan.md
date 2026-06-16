@@ -14,9 +14,9 @@ search:
     scheduleMs: 1000
 ```
 
-이 문서의 목적은 `sliceMaxActions=300`, `scheduleMs=1000ms`가 단순 경험값이 아니라, 특정 가정 환경에서 SLO를 만족하는 균형값인지 검증하기 위한 테스트 조건과 판정 기준을 남기는 것이다.
+이 문서의 목적은 `scheduleMs=1000ms`가 단순 경험값이 아니라, 특정 가정 환경에서 SLO를 만족하는 flush 주기인지 검증하기 위한 테스트 조건과 판정 기준을 남기는 것이다. `sliceMaxActions=300`은 현재 가정 부하에서는 도달하지 않는 안전 상한으로 보고, 비교 실험의 주축에서 제외한다.
 
-중요한 전제는 이 값이 Elasticsearch의 일반적인 최적값이 아니라는 점이다. ES bulk 크기는 문서 크기, shard 수, heap, CPU, refresh interval, I/O 성능, 동시 검색 부하에 따라 달라진다. 따라서 이 테스트는 "아래 가정 환경에서는 300건 / 1초가 합리적이다"를 증명하는 용도다.
+중요한 전제는 이 값이 Elasticsearch의 일반적인 최적값이 아니라는 점이다. ES bulk 크기는 문서 크기, shard 수, heap, CPU, refresh interval, I/O 성능, 동시 검색 부하에 따라 달라진다. 따라서 이 테스트는 "아래 가정 환경에서는 1초 flush 주기가 합리적이다"를 증명하는 용도다.
 
 ## 테스트 대상 파이프라인
 
@@ -55,7 +55,7 @@ public void periodicFlush() {
 
 | 설정 | 현재값 | 의미 |
 |---|---:|---|
-| `sliceMaxActions` | 300 | 한 번의 flush에서 ES bulk로 묶는 최대 문서 수 |
+| `sliceMaxActions` | 300 | 정상 부하에서는 도달하지 않는 예외적 burst 안전 상한 |
 | `scheduleMs` | 1000ms | 버퍼 대기 시간 상한 |
 | `maxConcurrency` | 2 | 동시에 실행할 ES bulk slice 수 |
 
@@ -121,19 +121,28 @@ ES 권장: 단일 bulk request 5~15MB 이하
 -> 300건 x p95가 15MB를 초과하면 sliceMaxActions를 줄여야 함
 ```
 
+## `sliceMaxActions=300` 해석
+
+DAU 10만 기준 피크 변경 부하는 약 0.2 events/sec이다. 50배 인위 부하인 10 events/sec에서도 1초 안에 buffer가 300건에 도달하지 않는다.
+
+peak 시나리오인 50 events/sec에서도 `scheduleMs=1000`이면 1초 안에 buffer가 최대 약 50건까지만 쌓인다. 따라서 `sliceMaxActions=100`, `300`, `500` 비교는 세 설정 모두 timer flush로 동작해 동일한 결과가 나올 가능성이 높다.
+
+이 테스트에서 실제 flush는 `scheduleMs` timer에 의해 발생하며, `sliceMaxActions=300`은 예외적 burst 상황의 안전 상한으로 기능한다. `300건 x p95`가 ES 권장 bulk payload 범위를 넘는지만 사전 측정에서 확인한다.
+
 ## 비교 설정
 
-비교 설정은 `maxConcurrency=2`를 고정하고, 한 번에 하나의 축만 변경한다.
+비교 설정은 `sliceMaxActions=300`, `maxConcurrency=2`를 고정하고 `scheduleMs`만 변경한다.
 
-### Round 1: `scheduleMs=1000` 고정, `sliceMaxActions` 변경
+### Round 0: 검색 baseline
+
+색인 부하 없이 검색 QPS 50과 QPS 100의 p95를 먼저 측정한다. 이 값은 색인 부하 중 검색 p95가 얼마나 악화되는지 판단하는 기준선이다.
 
 | 설정 | 목적 |
 |---|---|
-| `sliceMaxActions=100` | 작은 bulk의 호출 수와 dedup률 비교 |
-| `sliceMaxActions=300` | 현재 기본값 |
-| `sliceMaxActions=500` | 더 큰 bulk의 tail latency 확인 |
+| 검색 QPS 50 | steady 시나리오의 검색 baseline |
+| 검색 QPS 100 | peak 시나리오의 검색 baseline |
 
-### Round 2: `sliceMaxActions=300` 고정, `scheduleMs` 변경
+### Round 1: `scheduleMs` 변경
 
 | 설정 | 목적 |
 |---|---|
@@ -141,7 +150,7 @@ ES 권장: 단일 bulk request 5~15MB 이하
 | `scheduleMs=1000` | 현재 기본값 |
 | `scheduleMs=2000` | 더 긴 latency cap의 e2e 영향 |
 
-총 5개 설정을 비교한다. `300/1000/c2`는 Round 1과 Round 2에서 공유한다.
+본 테스트는 위 3개 설정을 steady/peak 시나리오에 적용한다.
 
 ## 부하 시나리오
 
@@ -153,7 +162,7 @@ ES 권장: 단일 bulk request 5~15MB 이하
 총 테스트 횟수는 다음과 같다.
 
 ```text
-5개 설정 x 2개 시나리오 = 10회
+baseline 2회 + 본 테스트 3개 설정 x 2개 시나리오 = 8회
 ```
 
 `burst(1초 500건)`와 `hot update`는 제외한다.
@@ -167,6 +176,16 @@ hot update 제외 이유:
 dedup 효과는 steady/peak에서 같은 postId 이벤트가 자연스럽게 발생하면 부수적으로 확인 가능하다.
 별도 시나리오로 분리하지 않는다.
 ```
+
+## 부하 생성 방법
+
+이 테스트의 파이프라인 latency는 `outbox_event.created_at`부터 측정한다. 따라서 부하 생성은 반드시 Outbox 구간을 통과해야 한다.
+
+기본 방식은 직접 `outbox_event`를 INSERT하는 것이다. 이 방식은 API, 비즈니스 트랜잭션, Post 저장 비용을 제외하고 Outbox polling 이후의 색인 파이프라인을 안정적으로 압박할 수 있다.
+
+API 호출 방식은 `PostCommandService -> postRepository.save() -> postIndexPort.requestUpsert()`까지 함께 검증해야 할 때 보조 방식으로 사용한다. 이 경우 결과 기록에 API 호출 방식으로 생성했다고 명시한다.
+
+SQS 직접 발행은 사용하지 않는다. SQS 직접 발행은 Outbox polling 구간을 건너뛰므로 `outbox_event.created_at -> ES bulk 완료` latency를 측정할 수 없다.
 
 ## e2e latency 측정 방법
 
@@ -235,14 +254,12 @@ buffer dedup률 (dedup된 건수 / 전체 buffer 건수)
 
 | 설정 | 시나리오 | events/sec | 검색 QPS | 파이프라인 p95 | 파이프라인 p99 | bulk p95 | rejected | conflict | 검색 p95 | 판정 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| 100/1000/c2 | steady | 10 | 50 | | | | | | | |
-| 100/1000/c2 | peak | 50 | 100 | | | | | | | |
-| 300/1000/c2 | steady | 10 | 50 | | | | | | | |
-| 300/1000/c2 | peak | 50 | 100 | | | | | | | |
-| 500/1000/c2 | steady | 10 | 50 | | | | | | | |
-| 500/1000/c2 | peak | 50 | 100 | | | | | | | |
+| baseline | 검색 only | 0 | 50 | - | - | - | - | - | ___ | baseline |
+| baseline | 검색 only | 0 | 100 | - | - | - | - | - | ___ | baseline |
 | 300/500/c2 | steady | 10 | 50 | | | | | | | |
 | 300/500/c2 | peak | 50 | 100 | | | | | | | |
+| 300/1000/c2 | steady | 10 | 50 | | | | | | | |
+| 300/1000/c2 | peak | 50 | 100 | | | | | | | |
 | 300/2000/c2 | steady | 10 | 50 | | | | | | | |
 | 300/2000/c2 | peak | 50 | 100 | | | | | | | |
 
@@ -255,17 +272,13 @@ buffer dedup률 (dedup된 건수 / 전체 buffer 건수)
 refresh_interval=1s, 부분 색인 peak 50 events/sec,
 문서 p95 ___KB라는 가정에서 수행했다.
 
-DAU 10만 기준 실제 피크 변경 부하는 ~0.2 events/sec이므로,
-테스트 부하(10~50 events/sec)는 실제의 50~250배에 해당한다.
+이 환경에서 실제 flush는 scheduleMs timer에 의해 발생한다.
+sliceMaxActions=300은 buffer 안전 상한이며 정상 운영 시 도달하지 않는다.
 
-이 환경에서 sliceMaxActions=300, scheduleMs=1000ms는
-파이프라인 p95 3초 이내, ES rejected 0건, 검색 p95 악화 20% 이내
-조건을 만족한 균형값이다.
-
-100건은 bulk 호출 수가 증가하고, 500건은 ___의 악화가 관찰되었다.
+scheduleMs=1000은 파이프라인 p95 3초 이내, 검색 p95 악화 20% 이내를 만족했다.
 500ms는 bulk 호출 빈도가 증가하고, 2000ms는 파이프라인 p95가 ___로 악화되었다.
 
-따라서 300/1000은 본 시스템 가정 환경에서 SLO를 만족하는 검증된 기본값이다.
+따라서 scheduleMs=1000은 본 시스템 가정 환경에서 SLO를 만족하는 검증된 기본값이다.
 ```
 
 ## 추가 검증 후보

@@ -6,7 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Service
 @Profile("outbox")
@@ -17,28 +21,41 @@ public class OutboxService {
     private final MeterRegistry meterRegistry;
 
     public List<Long> publishViewsAndCollectSuccessIds(List<OutboxEventDto> batch) {
-        List<Long> ok = new ArrayList<>(batch.size());
+        ConcurrentLinkedQueue<Long> ok = new ConcurrentLinkedQueue<>();
+        Map<Long, List<OutboxEventDto>> groups = new LinkedHashMap<>();
         for (OutboxEventDto e : batch) {
-            Timer.Sample t = Timer.start(meterRegistry);
-            try {
-                OutboxEventType type = OutboxEventType.from(e.getEventType());
-                if (type == OutboxEventType.DELETE) {
-                    sqsPublisher.sendDelete(e.getPayload()).join();
-                    t.stop(Timer.builder("outbox.process.event.delete")
-                            .publishPercentileHistogram().register(meterRegistry));
-                } else {
-                    sqsPublisher.sendUpsert(e.getPayload()).join();
-                    t.stop(Timer.builder("outbox.process.event.upsert")
-                            .publishPercentileHistogram().register(meterRegistry));
-                }
-                ok.add(e.getId());
-            } catch (Exception ex) {
-                t.stop(Timer.builder("outbox.process.event.error")
-                        .publishPercentileHistogram().register(meterRegistry));
-                meterRegistry.counter("outbox.process.event.failed").increment();
-                log.warn("Outbox 이벤트 처리 실패 id={}", e.getId(), ex);
-            }
+            groups.computeIfAbsent(e.getAggregateId(), ignored -> new ArrayList<>()).add(e);
         }
-        return ok;
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>(groups.size());
+        for (List<OutboxEventDto> events : groups.values()) {
+            CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+            for (OutboxEventDto e : events) {
+                chain = chain.thenCompose(ignored -> publishOne(e, ok));
+            }
+            futures.add(chain);
+        }
+
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        return new ArrayList<>(ok);
+    }
+
+    private CompletableFuture<Void> publishOne(OutboxEventDto e, ConcurrentLinkedQueue<Long> ok) {
+        Timer.Sample t = Timer.start(meterRegistry);
+        OutboxEventType type = OutboxEventType.from(e.getEventType());
+        return sqsPublisher.send(e.getPayload())
+                .thenAccept(resp -> {
+                    t.stop(Timer.builder("outbox.process.event." + type.name().toLowerCase())
+                            .publishPercentileHistogram().register(meterRegistry));
+                    ok.add(e.getId());
+                })
+                .exceptionally(ex -> {
+                    t.stop(Timer.builder("outbox.process.event.error")
+                            .publishPercentileHistogram().register(meterRegistry));
+                    meterRegistry.counter("outbox.process.event.failed").increment();
+                    log.warn("SQS 발행 실패 id={}, aggregateId={}, type={}",
+                            e.getId(), e.getAggregateId(), e.getEventType(), ex);
+                    return null;
+                });
     }
 }

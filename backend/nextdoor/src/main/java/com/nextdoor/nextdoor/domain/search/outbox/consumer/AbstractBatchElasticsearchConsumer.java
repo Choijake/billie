@@ -4,6 +4,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import com.nextdoor.nextdoor.domain.search.config.SearchProperties;
+import com.nextdoor.nextdoor.domain.search.lock.IndexLockService;
+import com.nextdoor.nextdoor.domain.search.lock.PendingEvent;
 import io.awspring.cloud.sqs.listener.acknowledgement.Acknowledgement;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -26,18 +28,30 @@ public abstract class AbstractBatchElasticsearchConsumer {
     protected final String indexName;
     private final int maxConcurrency;
     private final int sliceMaxActions;
+    private final IndexLockService indexLockService;
 
     protected static class Pending {
         final BulkOperation op;
         final Acknowledgement ack;
         final long aggregateId;
         final long version;
-        Pending(BulkOperation op, Acknowledgement ack, long aggregateId, long version) {
-            this.op = op; this.ack = ack; this.aggregateId = aggregateId; this.version = version;
+        final PendingEvent.EventType eventType;
+        Pending(BulkOperation op, Acknowledgement ack, long aggregateId, long version,
+                PendingEvent.EventType eventType) {
+            this.op = op;
+            this.ack = ack;
+            this.aggregateId = aggregateId;
+            this.version = version;
+            this.eventType = eventType;
         }
     }
 
-    protected record OperationWithMeta(BulkOperation op, long aggregateId, long version) {}
+    protected record OperationWithMeta(
+            BulkOperation op,
+            long aggregateId,
+            long version,
+            PendingEvent.EventType eventType
+    ) {}
 
     private final List<Pending> buffer = new CopyOnWriteArrayList<>();
     private final Counter versionConflictCounter;
@@ -46,12 +60,14 @@ public abstract class AbstractBatchElasticsearchConsumer {
 
     protected AbstractBatchElasticsearchConsumer(ElasticsearchAsyncClient es,
                                                   MeterRegistry meterRegistry,
-                                                  SearchProperties props) {
+                                                  SearchProperties props,
+                                                  IndexLockService indexLockService) {
         this.es = es;
         this.meterRegistry = meterRegistry;
         this.indexName = props.getIndexName();
         this.maxConcurrency = props.getBulk().getMaxConcurrency();
         this.sliceMaxActions = props.getBulk().getSliceMaxActions();
+        this.indexLockService = indexLockService;
         this.versionConflictCounter = Counter.builder("indexer.es.bulk.version_conflict")
                 .description("ES bulk version_conflict_engine_exception 횟수")
                 .register(meterRegistry);
@@ -70,7 +86,7 @@ public abstract class AbstractBatchElasticsearchConsumer {
     public void process(String msg, Acknowledgement ack) {
         try {
             OperationWithMeta owm = buildOperationWithMeta(msg);
-            buffer.add(new Pending(owm.op(), ack, owm.aggregateId(), owm.version()));
+            buffer.add(new Pending(owm.op(), ack, owm.aggregateId(), owm.version(), owm.eventType()));
             if (buffer.size() >= sliceMaxActions) {
                 flush();
             }
@@ -88,6 +104,16 @@ public abstract class AbstractBatchElasticsearchConsumer {
 
         List<Pending> raw = new ArrayList<>(buffer);
         buffer.clear();
+
+        // 전체 색인 중이면 pending queue로 이동하고 즉시 ACK
+        if (indexLockService.isFullIndexLocked()) {
+            for (Pending p : raw) {
+                indexLockService.addToPendingQueue(new PendingEvent(p.eventType, p.aggregateId));
+                p.ack.acknowledge();
+            }
+            log.info("{} 전체 인덱싱 중 — {}건 대기 큐 이동", operationName(), raw.size());
+            return;
+        }
 
         bulkBufferReceivedCounter.increment(raw.size());
 

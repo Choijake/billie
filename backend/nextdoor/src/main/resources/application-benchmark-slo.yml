@@ -1,0 +1,222 @@
+# ─── SLO 벤치마크 전용 프로파일 ──────────────────────────────────────────────
+# 도커 컨테이너(api / worker / outbox)가 사용하는 프로파일.
+# 인프라 주소는 docker-compose 컨테이너 이름을 사용한다.
+# 테스트 JVM은 기존 application-benchmark.yml (localhost 주소)을 사용한다.
+
+spring:
+  docker:
+    compose:
+      enabled: false
+
+  main:
+    allow-bean-definition-overriding: true
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - org.springframework.boot.autoconfigure.websocket.servlet.WebSocketServletAutoConfiguration
+      - org.springframework.boot.autoconfigure.quartz.QuartzAutoConfiguration
+      - org.springframework.ai.model.vertexai.autoconfigure.gemini.VertexAiGeminiChatAutoConfiguration
+      - org.springframework.ai.model.vertexai.autoconfigure.embedding.VertexAiEmbeddingConnectionAutoConfiguration
+
+  # ── 데이터베이스 (docker-internal) ─────────────────────────────────────
+  datasource:
+    url: jdbc:mysql://bench-mysql:3306/nextdoor?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: root
+    password: root1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        default_batch_fetch_size: 100
+
+  # ── Redis + Elasticsearch (docker-internal) ───────────────────────────
+  data:
+    redis:
+      host: bench-redis
+      port: 6379
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 2
+      timeout: 3000ms
+    elasticsearch:
+      repositories:
+        enabled: true
+
+  elasticsearch:
+    uris: bench-es:9200
+
+  task:
+    execution:
+      thread-name-prefix: slo-async-
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 500
+    scheduling:
+      pool:
+        size: 4
+
+custom:
+  elasticsearch:
+    enabled: true
+  fintech:
+    apiKey: benchmark-dummy-key
+  google:
+    ai:
+      gemini:
+        model:
+          flash: gemini-dummy
+          pro: gemini-dummy
+          flashHigh: gemini-dummy
+        location: us-central1
+        project-id: benchmark-dummy
+  damage-analyzer-prompt-location: classpath:dummy.txt
+  summarizer-prompt-location: classpath:dummy.txt
+  pair-damage-comparator-prompt-location: classpath:dummy.txt
+  product-analyzer-prompt-location: classpath:dummy.txt
+  product-condition-analyzer-prompt-location: classpath:dummy.txt
+
+cloud:
+  aws:
+    credentials:
+      access-key: test
+      secret-key: test
+    s3:
+      bucket: benchmark-dummy-bucket
+    region:
+      static: us-east-1
+
+# ─── SQS (LocalStack, docker-internal) ────────────────────────────────────
+sqs:
+  queue:
+    reindex:   http://bench-localstack:4566/000000000000/billie-indexer-queue
+    post-index: http://bench-localstack:4566/000000000000/post-index.fifo
+    post-index-dlq: http://bench-localstack:4566/000000000000/post-index-dlq.fifo
+
+spring.cloud.aws:
+  region:
+    static: us-east-1
+  credentials:
+    access-key: test
+    secret-key: test
+  sqs:
+    endpoint: http://bench-localstack:4566
+
+# ─── Search 설정 ───────────────────────────────────────────────────────────
+search:
+  indexName: posts
+  outbox:
+    batchSize: 100
+    claimTtlSec: 120
+    pollDelayMs: 2000
+    markChunkSize: 1000
+  bulk:
+    maxConcurrency: 2
+    sliceMaxActions: 300
+    scheduleMs: 1000
+    targetSliceBytes: 8388608
+    maxSliceBytes: 15728640
+  sqs:
+    batchLimit: 10
+  dlq:
+    enabled: true
+  reconciliation:
+    enabled: true
+    windowMinutes: 20
+    bufferMinutes: 5
+    intervalMs: 600000
+
+# ─── Logging ───────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: WARN
+    com.nextdoor.nextdoor.domain.search: INFO
+
+# ─── Actuator ──────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  metrics:
+    tags:
+      application: slo-benchmark
+
+# ════════════════════════════════════════════════════════════════════════════
+# api 프로파일: 웹 서버 활성화, 포트 8081
+# ════════════════════════════════════════════════════════════════════════════
+---
+spring:
+  config:
+    activate:
+      on-profile: api
+  main:
+    web-application-type: servlet
+
+server:
+  port: 8081
+  tomcat:
+    threads:
+      max: 300
+      min-spare: 20
+    accept-count: 200
+    connection-timeout: 30000
+
+# ════════════════════════════════════════════════════════════════════════════
+# worker 프로파일: 비-웹, SQS 소비자
+# ════════════════════════════════════════════════════════════════════════════
+---
+spring:
+  config:
+    activate:
+      on-profile: worker
+  main:
+    web-application-type: none
+  task:
+    scheduling:
+      pool:
+        size: 3
+
+# ════════════════════════════════════════════════════════════════════════════
+# outbox 프로파일: 비-웹, Outbox 폴러
+# ════════════════════════════════════════════════════════════════════════════
+---
+spring:
+  config:
+    activate:
+      on-profile: outbox
+  main:
+    web-application-type: none
+  datasource:
+    hikari:
+      maximum-pool-size: 18
+      minimum-idle: 5
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+    scheduling:
+      pool:
+        size: 2

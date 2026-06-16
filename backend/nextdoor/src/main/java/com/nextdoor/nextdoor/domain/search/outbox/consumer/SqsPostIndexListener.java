@@ -11,17 +11,17 @@ import org.springframework.stereotype.Component;
 @Profile("worker")
 @RequiredArgsConstructor
 @Slf4j
-public class SqsDeleteListener {
+public class SqsPostIndexListener {
 
-    private final DeleteMessageConsumer consumer;
+    private final PostIndexConsumer consumer;
 
-    @SqsListener(value = "${sqs.queue.delete}", acknowledgementMode = "MANUAL")
+    @SqsListener(value = "${sqs.queue.post-index}", acknowledgementMode = "MANUAL")
     public void onMessage(String message, Acknowledgement ack) {
         try {
-            log.debug("삭제 메시지 수신: {}", message);
+            log.debug("부분 색인 메시지 수신: {}", message);
             consumer.process(message, ack);
         } catch (Exception e) {
-            log.error("삭제 메시지 처리 중 오류 발생: {}", message, e);
+            log.error("부분 색인 메시지 처리 중 오류 발생: {}", message, e);
         }
     }
 }

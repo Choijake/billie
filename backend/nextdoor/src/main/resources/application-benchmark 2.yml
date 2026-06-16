@@ -18,8 +18,10 @@ spring:
       - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
       - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
       - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
       - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
       - org.springframework.boot.autoconfigure.websocket.servlet.WebSocketServletAutoConfiguration
       - org.springframework.boot.autoconfigure.quartz.QuartzAutoConfiguration
@@ -134,6 +136,13 @@ search:
     maxSliceBytes: 15728640
   sqs:
     batchLimit: 10
+  dlq:
+    enabled: true
+  reconciliation:
+    enabled: true
+    windowMinutes: 20
+    bufferMinutes: 1       # 벤치마크 전용: 운영(10min)보다 짧게 — ES down 후 ~2.5min이면 충분
+    intervalMs: 600000
 
 # ─── Logging ───────────────────────────────────────────────────────
 logging:

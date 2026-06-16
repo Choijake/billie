@@ -39,6 +39,15 @@ public class Jsons {
             throw new RuntimeException("Failed to read payload from JSON", e);
         }
     }
+
+    public OutboxEventType readEventType(String json) {
+        try {
+            JsonNode node = objectMapper.readTree(json);
+            return OutboxEventType.from(node.get("type").asText());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read event type from JSON", e);
+        }
+    }
     
     public PostUpsertEvent toUpsert(String json) {
         try {

@@ -23,6 +23,8 @@ public class SearchProperties {
     private final Sqs sqs = new Sqs();
     private final Lock lock = new Lock();
     private final Suggestion suggestion = new Suggestion();
+    private final Dlq dlq = new Dlq();
+    private final Reconciliation reconciliation = new Reconciliation();
 
     @Data
     public static class Outbox {
@@ -58,6 +60,8 @@ public class SearchProperties {
         private int batchSize = 1000;
         /** 동시 in-flight 배치 수 */
         private int maxInFlight = 2;
+        /** alias swap 후 pending queue 드레인 최대 라운드 수 */
+        private int maxDrainRounds = 3;
     }
 
     @Data
@@ -82,5 +86,25 @@ public class SearchProperties {
         private int maxSuggestions = 4;
         /** Redis 키 접두사 */
         private String keyPrefix = "search:keywords:";
+    }
+
+    @Data
+    public static class Dlq {
+        /** DLQ 소비자 활성화 여부 */
+        private boolean enabled = false;
+    }
+
+    @Data
+    public static class Reconciliation {
+        /** 재정합성 검증 활성화 여부 */
+        private boolean enabled = false;
+        /** 비교 윈도우 크기 (분) */
+        private long windowMinutes = 20;
+        /** 정상 파이프라인 처리 여유 버퍼 (분). 윈도우 상한 = now - bufferMinutes */
+        private long bufferMinutes = 10;
+        /** 한 번의 실행에서 처리할 수 있는 체크포인트 윈도우 상한 (분) */
+        private long maxWindowMinutes = 60;
+        /** 실행 주기 (ms) */
+        private long intervalMs = 600_000;
     }
 }
